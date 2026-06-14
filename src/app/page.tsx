@@ -252,17 +252,17 @@ export default function Home() {
             </div>
             <Badge variant="secondary" className="ml-2">14 инструментов</Badge>
             <div className="ml-auto text-sm text-muted-foreground hidden sm:block">
-              Бесплатный онлайн-редактор GIF
+Бесплатный редактор GIF
             </div>
           </div>
         </header>
 
         <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold mb-3">Онлайн-редактор GIF-анимаций</h2>
+            <h2 className="text-3xl font-bold mb-3">Редактор GIF-анимаций</h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Создавайте, редактируйте и оптимизируйте GIF-анимации прямо в браузере. 
-              Загрузите файл и выберите нужный инструмент.
+Создавайте, редактируйте и оптимизируйте GIF-анимации. 
+               Загрузите файл и выберите нужный инструмент.
             </p>
           </div>
 
@@ -287,7 +287,7 @@ export default function Home() {
 
         <footer className="border-t bg-background mt-auto">
           <div className="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-muted-foreground">
-            GIF Tools — Бесплатный онлайн-редактор GIF-анимаций
+            GIF Tools — Бесплатный редактор GIF-анимаций
           </div>
         </footer>
       </div>
