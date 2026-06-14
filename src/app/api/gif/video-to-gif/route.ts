@@ -1,0 +1,69 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { readFile, writeFile, unlink } from 'fs/promises'
+import path from 'path'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { randomUUID } from 'crypto'
+
+const execFileAsync = promisify(execFile)
+const TMP_DIR = '/home/z/my-project/tmp'
+
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData()
+    const file = formData.get('file') as File
+    const startTime = formData.get('startTime') as string || '0'
+    const duration = formData.get('duration') as string || '5'
+    const fps = formData.get('fps') as string || '10'
+    const width = formData.get('width') as string || '480'
+
+    if (!file) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    }
+
+    const id = randomUUID()
+    const inputPath = path.join(TMP_DIR, `${id}-input${file.name.endsWith('.mp4') ? '.mp4' : file.name.endsWith('.webm') ? '.webm' : '.mp4'}`)
+    const palettePath = path.join(TMP_DIR, `${id}-palette.png`)
+    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+    await writeFile(inputPath, buffer)
+
+    // Generate palette for better quality
+    await execFileAsync('ffmpeg', [
+      '-ss', startTime,
+      '-t', duration,
+      '-i', inputPath,
+      '-vf', `fps=${fps},scale=${width}:-1:flags=lanczos,palettegen=stats_mode=diff`,
+      palettePath,
+    ])
+
+    // Create GIF using palette
+    await execFileAsync('ffmpeg', [
+      '-ss', startTime,
+      '-t', duration,
+      '-i', inputPath,
+      '-i', palettePath,
+      '-lavfi', `fps=${fps},scale=${width}:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3`,
+      outputPath,
+    ])
+
+    const outputBuffer = await readFile(outputPath)
+
+    // Clean up
+    try { await unlink(inputPath) } catch {}
+    try { await unlink(palettePath) } catch {}
+    try { await unlink(outputPath) } catch {}
+
+    return new NextResponse(outputBuffer, {
+      headers: {
+        'Content-Type': 'image/gif',
+        'Content-Disposition': 'attachment; filename="video-to-gif.gif"',
+        'X-Output-Size': outputBuffer.length.toString(),
+      },
+    })
+  } catch (error: any) {
+    console.error('Video to GIF error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
