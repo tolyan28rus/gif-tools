@@ -12,6 +12,7 @@ export type ToolType =
   | 'make-gif'
   | 'video-to-gif'
   | 'convert'
+  | 'remove-bg'
 
 export interface ToolConfig {
   id: ToolType
@@ -126,5 +127,13 @@ export const tools: ToolConfig[] = [
     icon: '🔀',
     acceptTypes: 'image/gif,image/png,image/jpeg,image/webp,image/bmp,video/mp4,video/webm',
     color: 'bg-violet-500',
+  },
+  {
+    id: 'remove-bg',
+    name: 'Удалить фон',
+    description: 'Удаление цвета фона с настройкой толерантности',
+    icon: '🎯',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
+    color: 'bg-fuchsia-500',
   },
 ]

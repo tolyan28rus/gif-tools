@@ -58,3 +58,39 @@ Stage Summary:
 - API supports GIF→Video, GIF→APNG, GIF→WebP, Image→Format, Video→GIF, Video→Video
 - ConvertView has auto-format detection, quality control, comparison view
 - All 13 tools now available in the app
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Add Remove Background (Удалить фон) tool
+
+Work Log:
+- Added 'remove-bg' to ToolType union in tools-config.ts
+- Added remove-bg tool entry with fuchsia color, Eraser icon, image accept types
+- Created /api/gif/remove-bg/route.ts with three removal modes:
+  - Flood fill from edges (only connected background)
+  - Global (all matching pixels everywhere)
+  - Exact match (no tolerance)
+- Implemented color distance calculation with Euclidean distance in RGB space
+- Anti-aliased edge smoothing for partial transparency at boundary pixels
+- GIF support: extract frames with ffmpeg, process each frame, reassemble with transparency
+- Static image support: single frame processing, output as PNG with transparency
+- Added Eraser icon import from lucide-react
+- Created RemoveBgView component with:
+  - Color picker (native + hex input + pipette/eyedropper tool)
+  - Pipette tool: click on preview image to pick background color via canvas pixel sampling
+  - Quick color presets (white, black, green, blue, red, yellow)
+  - Tolerance slider (0-150) with descriptions
+  - Three mode selection cards with visual descriptions
+  - Checkerboard pattern background for transparency preview
+  - Side-by-side comparison (original vs result)
+  - "How it works" guide with 4 numbered steps
+- Updated badge count from 13 to 14
+- Lint passes, dev server compiles, browser verified all 14 tools render correctly
+
+Stage Summary:
+- Remove Background tool fully functional with 3 removal modes
+- Supports both GIF (animated) and static images
+- Pipette tool for interactive color picking from preview
+- Anti-aliased edges for smooth transparency transitions
+- All 14 tools now available in the app

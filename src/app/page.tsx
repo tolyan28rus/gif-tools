@@ -30,6 +30,7 @@ import {
   Type,
   Zap,
   ArrowRightLeft,
+  Eraser,
 } from 'lucide-react'
 import { tools, type ToolType, type ToolConfig } from '@/lib/tools-config'
 
@@ -48,6 +49,7 @@ const toolIcons: Record<ToolType, React.ReactNode> = {
   'split': <LayoutGrid className="h-5 w-5" />,
   'add-text': <Type className="h-5 w-5" />,
   'convert': <ArrowRightLeft className="h-5 w-5" />,
+  'remove-bg': <Eraser className="h-5 w-5" />,
 }
 
 const toolColors: Record<ToolType, string> = {
@@ -64,6 +66,7 @@ const toolColors: Record<ToolType, string> = {
   'split': 'from-cyan-500 to-cyan-600',
   'add-text': 'from-pink-500 to-pink-600',
   'convert': 'from-violet-500 to-violet-600',
+  'remove-bg': 'from-fuchsia-500 to-fuchsia-600',
 }
 
 // ==================== FILE SIZE FORMATTER ====================
@@ -232,7 +235,7 @@ export default function Home() {
               <img src="/logo-gif.png" alt="GIF Tools" className="h-8 w-8 rounded-lg" />
               <h1 className="text-2xl font-bold tracking-tight">GIF Tools</h1>
             </div>
-            <Badge variant="secondary" className="ml-2">13 инструментов</Badge>
+            <Badge variant="secondary" className="ml-2">14 инструментов</Badge>
             <div className="ml-auto text-sm text-muted-foreground hidden sm:block">
               Бесплатный онлайн-редактор GIF
             </div>
@@ -313,6 +316,20 @@ export default function Home() {
   if (selectedTool === 'convert') {
     return (
       <ConvertView
+        processing={processing}
+        outputUrl={outputUrl}
+        outputSize={outputSize}
+        onProcess={processWithFormData}
+        onDownload={downloadResult}
+        onBack={goBack}
+      />
+    )
+  }
+
+  // ==================== RENDER: REMOVE BG ====================
+  if (selectedTool === 'remove-bg') {
+    return (
+      <RemoveBgView
         processing={processing}
         outputUrl={outputUrl}
         outputSize={outputSize}
@@ -1916,6 +1933,447 @@ function ConvertView({
           </div>
         </div>
       </main>
+    </div>
+  )
+}
+
+// ==================== REMOVE BG VIEW ====================
+function RemoveBgView({
+  processing,
+  outputUrl,
+  outputSize,
+  onProcess,
+  onDownload,
+  onBack,
+}: {
+  processing: boolean
+  outputUrl: string | null
+  outputSize: number
+  onProcess: (endpoint: string, formData: FormData) => void
+  onDownload: () => void
+  onBack: () => void
+}) {
+  const [sourceFile, setSourceFile] = useState<File | null>(null)
+  const [sourcePreview, setSourcePreview] = useState<string | null>(null)
+  const [bgColor, setBgColor] = useState('#ffffff')
+  const [tolerance, setTolerance] = useState(30)
+  const [mode, setMode] = useState<'flood' | 'global' | 'exact'>('flood')
+  const [pickColor, setPickColor] = useState(false)
+  const [sourceMeta, setSourceMeta] = useState<{ width: number; height: number; size: number } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  const { toast } = useToast()
+
+  const handleFileSelect = (file: File) => {
+    setSourceFile(file)
+    const url = URL.createObjectURL(file)
+    setSourcePreview(url)
+    setSourceMeta({ width: 0, height: 0, size: file.size })
+
+    // Get image dimensions
+    const img = new Image()
+    img.onload = () => {
+      setSourceMeta({ width: img.width, height: img.height, size: file.size })
+      imgRef.current = img
+    }
+    img.src = url
+  }
+
+  const handlePickColor = () => {
+    setPickColor(true)
+    toast({ title: 'Пипетка активирована', description: 'Нажмите на изображение, чтобы выбрать цвет фона' })
+  }
+
+  const handleCanvasClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!pickColor) return
+    setPickColor(false)
+
+    const img = e.currentTarget
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    ctx.drawImage(img, 0, 0)
+
+    const rect = img.getBoundingClientRect()
+    const x = Math.floor((e.clientX - rect.left) / rect.width * img.naturalWidth)
+    const y = Math.floor((e.clientY - rect.top) / rect.height * img.naturalHeight)
+
+    const pixel = ctx.getImageData(x, y, 1, 1).data
+    const hex = '#' + [pixel[0], pixel[1], pixel[2]].map(c => c.toString(16).padStart(2, '0')).join('')
+    setBgColor(hex)
+    toast({ title: 'Цвет выбран', description: `Цвет фона: ${hex}` })
+  }
+
+  const handleRemoveBg = () => {
+    if (!sourceFile) return
+    const formData = new FormData()
+    formData.append('file', sourceFile)
+    formData.append('bgColor', bgColor)
+    formData.append('tolerance', String(tolerance))
+    formData.append('mode', mode)
+    onProcess('remove-bg', formData)
+  }
+
+  // Checkerboard pattern for transparency preview
+  const checkerboardStyle = {
+    backgroundImage: 'linear-gradient(45deg, #e0e0e0 25%, transparent 25%), linear-gradient(-45deg, #e0e0e0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e0e0e0 75%), linear-gradient(-45deg, transparent 75%, #e0e0e0 75%)',
+    backgroundSize: '16px 16px',
+    backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+            <ArrowLeft className="h-4 w-4" /> Назад
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-fuchsia-600 flex items-center justify-center text-white">
+            <Eraser className="h-4 w-4" />
+          </div>
+          <h1 className="text-lg font-semibold">Удалить фон</h1>
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left panel */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Upload */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Исходный файл</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {sourcePreview ? (
+                    <div className="space-y-2">
+                      <img src={sourcePreview} alt="Превью" className="max-h-[120px] mx-auto rounded" />
+                      <p className="text-sm font-medium truncate">{sourceFile?.name}</p>
+                      {sourceMeta && (
+                        <p className="text-xs text-muted-foreground">
+                          {sourceMeta.width}×{sourceMeta.height}px • {formatFileSize(sourceMeta.size)}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <Eraser className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm">Загрузите GIF или изображение</p>
+                    </>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/gif,image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) handleFileSelect(f)
+                  }}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Settings */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Настройки удаления</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {sourceFile ? (
+                  <>
+                    {/* Color picker */}
+                    <div className="space-y-2">
+                      <Label>Цвет фона для удаления</Label>
+                      <div className="flex gap-2 items-center">
+                        <div className="relative">
+                          <input
+                            type="color"
+                            value={bgColor}
+                            onChange={e => setBgColor(e.target.value)}
+                            className="w-12 h-10 rounded-lg border-2 cursor-pointer"
+                          />
+                        </div>
+                        <Input
+                          value={bgColor}
+                          onChange={e => setBgColor(e.target.value)}
+                          className="flex-1 font-mono"
+                          placeholder="#ffffff"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handlePickColor}
+                          className={pickColor ? 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300' : ''}
+                        >
+                          📍 Пипетка
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Выберите цвет, который нужно сделать прозрачным, или используйте пипетку
+                      </p>
+                    </div>
+
+                    {/* Quick color presets */}
+                    <div className="space-y-2">
+                      <Label>Быстрый выбор</Label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[
+                          { color: '#ffffff', label: 'Белый', border: 'border-gray-300' },
+                          { color: '#000000', label: 'Чёрный', border: 'border-gray-600' },
+                          { color: '#00ff00', label: 'Зелёный', border: 'border-green-300' },
+                          { color: '#0000ff', label: 'Синий', border: 'border-blue-300' },
+                          { color: '#ff0000', label: 'Красный', border: 'border-red-300' },
+                          { color: '#ffff00', label: 'Жёлтый', border: 'border-yellow-300' },
+                        ].map(preset => (
+                          <button
+                            key={preset.color}
+                            onClick={() => setBgColor(preset.color)}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border ${preset.border} hover:shadow-sm transition-shadow ${bgColor === preset.color ? 'ring-2 ring-fuchsia-400' : ''}`}
+                          >
+                            <span
+                              className="w-3 h-3 rounded-sm inline-block"
+                              style={{ backgroundColor: preset.color, border: preset.color === '#ffffff' ? '1px solid #ccc' : 'none' }}
+                            />
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Tolerance */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label>Толерантность</Label>
+                        <span className="text-sm font-medium">{tolerance}</span>
+                      </div>
+                      <Slider
+                        value={[tolerance]}
+                        onValueChange={([v]) => setTolerance(v)}
+                        min={0}
+                        max={150}
+                        step={1}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Точное совпадение</span>
+                        <span>Широкий диапазон</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Чем выше значение, тем больше похожих оттенков будет удалено
+                      </p>
+                    </div>
+
+                    {/* Mode */}
+                    <div className="space-y-2">
+                      <Label>Режим удаления</Label>
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => setMode('flood')}
+                          className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${mode === 'flood' ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-border hover:border-fuchsia-200'}`}
+                        >
+                          <p className="font-medium text-sm">Заливка от краёв</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Удаляет только соединённый фон от краёв изображения</p>
+                        </button>
+                        <button
+                          onClick={() => setMode('global')}
+                          className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${mode === 'global' ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-border hover:border-fuchsia-200'}`}
+                        >
+                          <p className="font-medium text-sm">Глобальный</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Удаляет все пиксели выбранного цвета по всему изображению</p>
+                        </button>
+                        <button
+                          onClick={() => setMode('exact')}
+                          className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${mode === 'exact' ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-border hover:border-fuchsia-200'}`}
+                        >
+                          <p className="font-medium text-sm">Точное совпадение</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Удаляет только пиксели с точным совпадением цвета (без толерантности)</p>
+                        </button>
+                      </div>
+                    </div>
+
+                    <Button
+                      className="w-full bg-fuchsia-600 hover:bg-fuchsia-700"
+                      onClick={handleRemoveBg}
+                      disabled={processing || !sourceFile}
+                    >
+                      {processing ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Удаление фона...</>
+                      ) : (
+                        <>
+                          <Eraser className="mr-2 h-4 w-4" />
+                          Удалить фон
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Сначала загрузите файл
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* How it works */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Как это работает</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-2">
+                    <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</span>
+                    <p>Загрузите GIF или изображение с однотонным фоном</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
+                    <p>Выберите цвет фона с помощью пипетки или палитры</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
+                    <p>Настройте толерантность — чем выше, тем больше оттенков удалится</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</span>
+                    <p>Режим «Заливка» удаляет только фон от краёв, «Глобальный» — все совпадающие пиксели</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right: Preview & Result */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* Source preview with color picker support */}
+            {sourcePreview && !outputUrl && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">
+                      {pickColor ? '🎯 Нажмите на изображение для выбора цвета' : 'Предпросмотр'}
+                    </CardTitle>
+                    {bgColor && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Цвет фона:</span>
+                        <div className="w-6 h-6 rounded border" style={{ backgroundColor: bgColor, border: bgColor === '#ffffff' ? '1px solid #ccc' : 'none' }} />
+                        <span className="text-xs font-mono">{bgColor}</span>
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div
+                    className="rounded-lg p-4 flex items-center justify-center min-h-[300px]"
+                    style={checkerboardStyle}
+                  >
+                    <img
+                      src={sourcePreview}
+                      alt="Исходное изображение"
+                      className={`max-w-full max-h-[500px] rounded-lg shadow-sm ${pickColor ? 'cursor-crosshair ring-2 ring-fuchsia-400' : ''}`}
+                      onClick={handleCanvasClick}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Result */}
+            {outputUrl ? (
+              <Card className="border-fuchsia-200">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Результат</CardTitle>
+                    <Badge variant="secondary" className="bg-fuchsia-100 text-fuchsia-700">
+                      Фон удалён • {formatFileSize(outputSize)}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div
+                    className="rounded-lg p-4 flex items-center justify-center min-h-[300px]"
+                    style={checkerboardStyle}
+                  >
+                    <img
+                      src={outputUrl}
+                      alt="Результат"
+                      className="max-w-full max-h-[500px] rounded-lg shadow-sm"
+                    />
+                  </div>
+
+                  {/* Size comparison */}
+                  {sourceFile && (
+                    <div className="flex items-center justify-center gap-4 text-sm bg-muted/50 rounded-lg p-3">
+                      <span className="text-muted-foreground">
+                        Исходный: {formatFileSize(sourceFile.size)}
+                      </span>
+                      <span>→</span>
+                      <span className="font-medium">
+                        Результат: {formatFileSize(outputSize)}
+                      </span>
+                    </div>
+                  )}
+
+                  <Button onClick={onDownload} className="w-full gap-2 bg-fuchsia-600 hover:bg-fuchsia-700">
+                    <Download className="h-4 w-4" />
+                    Скачать результат
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : !sourcePreview ? (
+              <Card>
+                <CardContent className="py-16 text-center">
+                  <Eraser className="h-16 w-16 mx-auto mb-4 text-muted-foreground/20" />
+                  <h3 className="text-lg font-medium mb-2">Удаление фона</h3>
+                  <p className="text-muted-foreground max-w-md mx-auto">
+                    Загрузите GIF или изображение, выберите цвет фона для удаления 
+                    и настройте толерантность. Прозрачные области будут показаны 
+                    на шахматном фоне.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {/* Comparison after processing */}
+            {outputUrl && sourcePreview && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Сравнение</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-center text-muted-foreground">Оригинал</p>
+                      <div className="bg-muted/30 rounded-lg p-2 flex items-center justify-center min-h-[200px]">
+                        <img src={sourcePreview} alt="Оригинал" className="max-w-full max-h-[200px] rounded" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-center text-muted-foreground">Без фона</p>
+                      <div
+                        className="rounded-lg p-2 flex items-center justify-center min-h-[200px]"
+                        style={checkerboardStyle}
+                      >
+                        <img src={outputUrl} alt="Без фона" className="max-w-full max-h-[200px] rounded" />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      </main>
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   )
 }
