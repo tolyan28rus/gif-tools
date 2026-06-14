@@ -166,18 +166,14 @@ export async function POST(request: NextRequest) {
       await mkdir(framesDir, { recursive: true })
       await mkdir(outputDir, { recursive: true })
 
+      // Write the GIF to disk first
+      const inputGifPath = path.join(TMP_DIR, `${id}-input.gif`)
+      await writeFile(inputGifPath, buffer)
+
       // Extract frames as PNG (to preserve full color)
       await execFileAsync('ffmpeg', [
-        '-i', path.join(TMP_DIR, `${id}-input.gif`),
-        '-vsync', 'passthrough',
-        path.join(framesDir, 'frame_%04d.png'),
-      ])
-      await writeFile(path.join(TMP_DIR, `${id}-input.gif`), buffer)
-
-      // Re-extract after writing
-      await execFileAsync('ffmpeg', [
-        '-i', path.join(TMP_DIR, `${id}-input.gif`),
-        '-vsync', 'passthrough',
+        '-i', inputGifPath,
+        '-fps_mode', 'passthrough',
         path.join(framesDir, 'frame_%04d.png'),
       ])
 
@@ -217,7 +213,9 @@ export async function POST(request: NextRequest) {
 
       // Reassemble as GIF with transparency
       const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+      const fps = avgDelay > 0 ? (1000 / avgDelay) : 10
       await execFileAsync('ffmpeg', [
+        '-framerate', String(fps),
         '-i', path.join(outputDir, 'frame_%04d.png'),
         '-lavfi', `palettegen=reserve_transparent=1:stats_mode=diff[pal],[0:v][pal]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128`,
         outputPath,
