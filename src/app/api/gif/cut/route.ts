@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFile, writeFile, unlink, rename } from 'fs/promises'
+import { readFile, unlink, rename, mkdir, readdir, rm } from 'fs/promises'
 import path from 'path'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { execFfmpeg } from '@/lib/ffmpeg-path'
 
-const execFileAsync = promisify(execFile)
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,50 +14,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
     }
 
-    const id = path.basename(inputPath).replace('-input.gif', '')
+    const sFrame = Number(startFrame)
+    const eFrame = Number(endFrame)
+    if (sFrame < 0 || eFrame < 0 || eFrame < sFrame) {
+      return NextResponse.json({ error: 'Invalid frame range' }, { status: 400 })
+    }
+
+    const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
+    const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
     const framesDir = path.join(TMP_DIR, `${id}-cut-frames`)
     const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
 
-    // Extract all frames
-    await execFileAsync('mkdir', ['-p', framesDir])
-    await execFileAsync('ffmpeg', [
-      '-i', inputPath,
+    await mkdir(framesDir, { recursive: true })
+    await execFfmpeg([
+      '-i', safeInputPath,
       '-vsync', 'passthrough',
       path.join(framesDir, 'frame_%04d.png'),
     ])
 
-    // Select only frames in range
-    const { stdout } = await execFileAsync('ls', [framesDir])
-    const allFrames = stdout.trim().split('\n').filter(Boolean).sort()
-    const selectedFrames = allFrames.slice(Number(startFrame), Number(endFrame) + 1)
+    const allFrames = (await readdir(framesDir)).filter(f => f.endsWith('.png')).sort()
+    const selectedFrames = allFrames.slice(sFrame, eFrame + 1)
 
-    // Copy selected frames with new naming
     for (let i = 0; i < selectedFrames.length; i++) {
       const oldPath = path.join(framesDir, selectedFrames[i])
-      const newPath = path.join(framesDir, `cut_%04d.png`.replace('%04d', String(i + 1).padStart(4, '0')))
+      const newPath = path.join(framesDir, `cut_${String(i + 1).padStart(4, '0')}.png`)
       await rename(oldPath, newPath)
     }
 
-    // Remove non-selected frames
     for (const frame of allFrames) {
       if (!selectedFrames.includes(frame)) {
         try { await unlink(path.join(framesDir, frame)) } catch {}
       }
     }
 
-    // Reassemble
-    await execFileAsync('ffmpeg', [
+    const palettePath = path.join(TMP_DIR, `${id}-palette.png`)
+    await execFfmpeg([
       '-i', path.join(framesDir, 'cut_%04d.png'),
-      '-vf', 'palettegen=stats_mode=diff[pal],[0:v][pal]paletteuse=dither=bayer:bayer_scale=3',
+      '-vf', 'palettegen=stats_mode=diff',
+      palettePath,
+    ])
+    await execFfmpeg([
+      '-i', path.join(framesDir, 'cut_%04d.png'),
+      '-i', palettePath,
+      '-filter_complex', 'paletteuse=dither=bayer:bayer_scale=3',
       outputPath,
     ])
+    try { await unlink(palettePath) } catch {}
 
     const outputBuffer = await readFile(outputPath)
 
-    // Clean up
-    try { await unlink(inputPath) } catch {}
     try { await unlink(outputPath) } catch {}
-    try { await execFileAsync('rm', ['-rf', framesDir]) } catch {}
+    try { await rm(framesDir, { recursive: true, force: true }) } catch {}
 
     return new NextResponse(outputBuffer, {
       headers: {

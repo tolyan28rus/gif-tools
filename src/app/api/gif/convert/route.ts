@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { readFile, writeFile, unlink, mkdir } from 'fs/promises'
+import { readFile, writeFile, unlink, mkdir, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { execFfmpeg } from '@/lib/ffmpeg-path'
 
-const execFileAsync = promisify(execFile)
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 async function ensureTmpDir() {
   if (!existsSync(TMP_DIR)) {
@@ -60,12 +58,11 @@ export async function POST(request: NextRequest) {
 
       ffmpegArgs.push(outputPath)
 
-      await execFileAsync('ffmpeg', ffmpegArgs)
+      await execFfmpeg(ffmpegArgs)
 
       const outputBuffer = await readFile(outputPath)
       const contentType = targetFormat === 'mp4' ? 'video/mp4' : 'video/webm'
 
-      try { await unlink(inputPath) } catch {}
       try { await unlink(outputPath) } catch {}
 
       return new NextResponse(outputBuffer, {
@@ -82,8 +79,7 @@ export async function POST(request: NextRequest) {
       const framesDir = path.join(TMP_DIR, `${id}-apng-frames`)
       await mkdir(framesDir, { recursive: true })
 
-      // Extract frames
-      await execFileAsync('ffmpeg', [
+      await execFfmpeg([
         '-i', inputPath,
         '-vsync', 'passthrough',
         path.join(framesDir, 'frame_%04d.png'),
@@ -96,8 +92,7 @@ export async function POST(request: NextRequest) {
 
       const outputPath = path.join(TMP_DIR, `${id}-output.png`)
 
-      // Use ffmpeg to create APNG
-      await execFileAsync('ffmpeg', [
+      await execFfmpeg([
         '-i', inputPath,
         '-plays', '0',
         '-f', 'apng',
@@ -106,9 +101,8 @@ export async function POST(request: NextRequest) {
 
       const outputBuffer = await readFile(outputPath)
 
-      try { await unlink(inputPath) } catch {}
       try { await unlink(outputPath) } catch {}
-      try { await execFileAsync('rm', ['-rf', framesDir]) } catch {}
+      try { await rm(framesDir, { recursive: true, force: true }) } catch {}
 
       return new NextResponse(outputBuffer, {
         headers: {
@@ -129,7 +123,6 @@ export async function POST(request: NextRequest) {
 
       const outputBuffer = await readFile(outputPath)
 
-      try { await unlink(inputPath) } catch {}
       try { await unlink(outputPath) } catch {}
 
       return new NextResponse(outputBuffer, {
@@ -142,7 +135,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ==================== Image → Image format conversion ====================
-    if (isImage && !isGif) {
+    if (isImage) {
       const outputPath = path.join(TMP_DIR, `${id}-output.${targetFormat}`)
 
       let pipeline = sharp(inputPath)
@@ -184,7 +177,6 @@ export async function POST(request: NextRequest) {
         tiff: 'image/tiff',
       }
 
-      try { await unlink(inputPath) } catch {}
       try { await unlink(outputPath) } catch {}
 
       return new NextResponse(outputBuffer, {
@@ -207,12 +199,29 @@ export async function POST(request: NextRequest) {
       } else if (targetFormat === 'webm') {
         ffmpegArgs.push('-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', String(Math.round(63 - (quality / 100) * 51)))
       } else if (targetFormat === 'gif') {
-        ffmpegArgs.push('-vf', 'fps=12,scale=480:-1:flags=lanczos,palettegen=stats_mode=diff[pal],[0:v][pal]paletteuse=dither=bayer:bayer_scale=3')
+        const palettePath = path.join(TMP_DIR, `${id}-palette.png`)
+        await execFfmpeg([
+          '-i', inputPath,
+          '-vf', `fps=12,scale=480:-1:flags=lanczos,palettegen=stats_mode=diff`,
+          palettePath,
+        ])
+        ffmpegArgs.push('-i', palettePath, '-lavfi', `fps=12,scale=480:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3`, outputPath)
+        await execFfmpeg(ffmpegArgs)
+        const outputBuffer = await readFile(outputPath)
+        try { await unlink(outputPath) } catch {}
+        try { await unlink(palettePath) } catch {}
+        return new NextResponse(outputBuffer, {
+          headers: {
+            'Content-Type': 'image/gif',
+            'Content-Disposition': 'attachment; filename="converted.gif"',
+            'X-Output-Size': outputBuffer.length.toString(),
+          },
+        })
       }
 
       ffmpegArgs.push(outputPath)
 
-      await execFileAsync('ffmpeg', ffmpegArgs)
+      await execFfmpeg(ffmpegArgs)
 
       const outputBuffer = await readFile(outputPath)
 
@@ -222,7 +231,6 @@ export async function POST(request: NextRequest) {
         gif: 'image/gif',
       }
 
-      try { await unlink(inputPath) } catch {}
       try { await unlink(outputPath) } catch {}
 
       return new NextResponse(outputBuffer, {

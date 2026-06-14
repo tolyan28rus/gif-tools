@@ -51,9 +51,9 @@ export const tools: ToolConfig[] = [
   {
     id: 'crop',
     name: 'Обрезка',
-    description: 'Обрезка GIF по выбранной области',
+    description: 'Обрезка по выбранной области',
     icon: '✂️',
-    acceptTypes: 'image/gif',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
     color: 'bg-amber-500',
   },
   {

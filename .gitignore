@@ -20,6 +20,22 @@ node_modules
 # production
 /build
 
+# electron build output
+dist-electron/
+
+# temp files
+tmp/
+ffmpeg.zip
+*.log
+
+# bundled resources
+resources/ffmpeg/
+
+# build scripts
+build-nextjs.bat
+build.bat
+launch.bat
+
 # misc
 .DS_Store
 *.pem
@@ -43,12 +59,7 @@ next-env.d.ts
 local-*
 .claude
 .z-ai-config
-*.log
-dev.log
-dev.out.log
 test
 prompt
-
-server.log
 # Skills directory
 /skills/

@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { readFile, writeFile, unlink, mkdir } from 'fs/promises'
-import path from 'path'
-import { randomUUID } from 'crypto'
 import GIFEncoder from 'gif-encoder-2'
-
-const TMP_DIR = '/home/z/my-project/tmp'
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,8 +12,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 })
     }
 
-    const id = randomUUID()
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+    if (files.length > 100) {
+      return NextResponse.json({ error: 'Too many files (max 100)' }, { status: 400 })
+    }
 
     // Read all images and get dimensions
     const frames: Buffer[] = []
@@ -37,12 +33,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Could not determine dimensions' }, { status: 400 })
     }
 
-    // Create GIF using gif-encoder-2
     const encoder = new GIFEncoder(maxWidth, maxHeight, 'neuquant', true)
     
-    // Collect chunks
     const chunks: Buffer[] = []
-    encoder.createReadStream().on('data', (chunk: Buffer) => chunks.push(chunk))
+    const streamPromise = new Promise<void>((resolve) => {
+      encoder.createReadStream()
+        .on('data', (chunk: Buffer) => chunks.push(chunk))
+        .on('end', resolve)
+    })
 
     encoder.start()
     encoder.setRepeat(0)
@@ -60,10 +58,7 @@ export async function POST(request: NextRequest) {
 
     encoder.finish()
 
-    // Wait for stream to end
-    await new Promise<void>((resolve) => {
-      encoder.createReadStream().on('end', resolve)
-    })
+    await streamPromise
 
     const outputBuffer = Buffer.concat(chunks)
 

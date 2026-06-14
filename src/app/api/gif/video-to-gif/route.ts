@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFile, writeFile, unlink } from 'fs/promises'
+import { readFile, unlink } from 'fs/promises'
 import path from 'path'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { randomUUID } from 'crypto'
+import { execFfmpeg } from '@/lib/ffmpeg-path'
 
-const execFileAsync = promisify(execFile)
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,8 +27,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer())
     await writeFile(inputPath, buffer)
 
-    // Generate palette for better quality
-    await execFileAsync('ffmpeg', [
+    await execFfmpeg([
       '-ss', startTime,
       '-t', duration,
       '-i', inputPath,
@@ -38,8 +35,7 @@ export async function POST(request: NextRequest) {
       palettePath,
     ])
 
-    // Create GIF using palette
-    await execFileAsync('ffmpeg', [
+    await execFfmpeg([
       '-ss', startTime,
       '-t', duration,
       '-i', inputPath,
@@ -51,7 +47,6 @@ export async function POST(request: NextRequest) {
     const outputBuffer = await readFile(outputPath)
 
     // Clean up
-    try { await unlink(inputPath) } catch {}
     try { await unlink(palettePath) } catch {}
     try { await unlink(outputPath) } catch {}
 

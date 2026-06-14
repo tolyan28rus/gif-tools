@@ -1,30 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { readFile, writeFile, unlink } from 'fs/promises'
+import { readFile, unlink } from 'fs/promises'
 import path from 'path'
 
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { inputPath, speedMultiplier } = body
 
-    if (!inputPath || !speedMultiplier) {
-      return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
+    if (!inputPath || !speedMultiplier || Number(speedMultiplier) <= 0) {
+      return NextResponse.json({ error: 'Missing or invalid parameters' }, { status: 400 })
     }
 
-    const id = path.basename(inputPath).replace('-input.gif', '')
+    const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
+    const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
     const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
 
-    const inputBuffer = await readFile(inputPath)
+    const inputBuffer = await readFile(safeInputPath)
     const metadata = await sharp(inputBuffer, { animated: true }).metadata()
     
-    // delay is in centiseconds per frame
+    const multiplier = Number(speedMultiplier)
     const currentDelay = metadata.delay || []
     const newDelay = currentDelay.map(d => {
-      const newD = Math.round(d / speedMultiplier)
-      return Math.max(2, Math.min(newD, 6000)) // clamp between 20ms and 60s
+      const newD = Math.round(d / multiplier)
+      return Math.max(2, Math.min(newD, 6000))
     })
 
     // We need to use sharp with custom delay
@@ -35,7 +36,6 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(inputPath) } catch {}
     try { await unlink(outputPath) } catch {}
 
     return new NextResponse(outputBuffer, {

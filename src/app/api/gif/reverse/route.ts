@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFile, writeFile, unlink, rename } from 'fs/promises'
+import { readFile, unlink, rename, mkdir, readdir, rm } from 'fs/promises'
 import path from 'path'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { execFfmpeg } from '@/lib/ffmpeg-path'
 
-const execFileAsync = promisify(execFile)
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,42 +14,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
     }
 
-    const id = path.basename(inputPath).replace('-input.gif', '')
+    const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
+    const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
     const framesDir = path.join(TMP_DIR, `${id}-frames`)
     const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
 
-    // Extract frames using ffmpeg
-    await execFileAsync('mkdir', ['-p', framesDir])
-    await execFileAsync('ffmpeg', [
-      '-i', inputPath,
+    await mkdir(framesDir, { recursive: true })
+    await execFfmpeg([
+      '-i', safeInputPath,
       '-vsync', 'passthrough',
       path.join(framesDir, 'frame_%04d.png'),
     ])
 
-    // Get frame count and reverse order
-    const { stdout } = await execFileAsync('ls', [framesDir])
-    const frames = stdout.trim().split('\n').filter(Boolean).sort()
+    const frames = (await readdir(framesDir)).filter(f => f.endsWith('.png')).sort()
     const reversedFrames = [...frames].reverse()
 
-    // Rename frames in reverse order
     for (let i = 0; i < reversedFrames.length; i++) {
       const oldPath = path.join(framesDir, reversedFrames[i])
       const newPath = path.join(framesDir, `rev_${String(i + 1).padStart(4, '0')}.png`)
       await rename(oldPath, newPath)
     }
 
-    await execFileAsync('ffmpeg', [
+    const palettePath = path.join(TMP_DIR, `${id}-palette.png`)
+    await execFfmpeg([
       '-i', path.join(framesDir, 'rev_%04d.png'),
-      '-vf', 'palettegen=stats_mode=diff[pal],[0:v][pal]paletteuse=dither=bayer:bayer_scale=3',
+      '-vf', 'palettegen=stats_mode=diff',
+      palettePath,
+    ])
+    await execFfmpeg([
+      '-i', path.join(framesDir, 'rev_%04d.png'),
+      '-i', palettePath,
+      '-filter_complex', 'paletteuse=dither=bayer:bayer_scale=3',
       outputPath,
     ])
+    try { await unlink(palettePath) } catch {}
 
     const outputBuffer = await readFile(outputPath)
 
-    // Clean up
-    try { await unlink(inputPath) } catch {}
     try { await unlink(outputPath) } catch {}
-    try { await execFileAsync('rm', ['-rf', framesDir]) } catch {}
+    try { await rm(framesDir, { recursive: true, force: true }) } catch {}
 
     return new NextResponse(outputBuffer, {
       headers: {

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { readFile, writeFile, unlink } from 'fs/promises'
+import { readFile, unlink } from 'fs/promises'
 import path from 'path'
 
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,10 +14,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
     }
 
-    const id = path.basename(inputPath).replace('-input.gif', '')
+    const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
+    const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
     const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
 
-    const inputBuffer = await readFile(inputPath)
+    const inputBuffer = await readFile(safeInputPath)
     const metadata = await sharp(inputBuffer, { animated: true }).metadata()
 
     let resizeOptions: sharp.ResizeOptions = {
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
       resizeOptions.height = Number(height)
     }
 
-    if (maintainAspect) {
+    if (maintainAspect === true) {
       resizeOptions.fit = 'inside'
     }
 
@@ -41,7 +42,6 @@ export async function POST(request: NextRequest) {
     const outputBuffer = await readFile(outputPath)
 
     // Clean up
-    try { await unlink(inputPath) } catch {}
     try { await unlink(outputPath) } catch {}
 
     return new NextResponse(outputBuffer, {

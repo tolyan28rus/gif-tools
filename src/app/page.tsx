@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -69,6 +69,12 @@ const toolColors: Record<ToolType, string> = {
   'remove-bg': 'from-fuchsia-500 to-fuchsia-600',
 }
 
+// ==================== TEXT PREVIEW SVG ====================
+function textSvg(width: number, height: number, text: string, fontSize: number, color: string, x: number, y: number, stroke: string, sw: number): string {
+  const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return `<svg width="${width}" height="${height}"><text x="${x}" y="${y + fontSize}" font-size="${fontSize}" fill="${color}" stroke="${stroke}" stroke-width="${sw}" font-family="Arial, Helvetica, sans-serif">${safeText}</text></svg>`
+}
+
 // ==================== FILE SIZE FORMATTER ====================
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -84,6 +90,7 @@ export default function Home() {
   const [uploadMeta, setUploadMeta] = useState<any>(null)
   const [outputUrl, setOutputUrl] = useState<string | null>(null)
   const [outputSize, setOutputSize] = useState<number>(0)
+  const [outputFilename, setOutputFilename] = useState<string>('result.gif')
   const [processing, setProcessing] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
@@ -94,17 +101,6 @@ export default function Home() {
   const [makeGifFiles, setMakeGifFiles] = useState<File[]>([])
   const [makeGifPreviews, setMakeGifPreviews] = useState<string[]>([])
   const makeGifInputRef = useRef<HTMLInputElement>(null)
-
-  const handleFileSelect = useCallback((file: File) => {
-    setUploadedFile(file)
-    setOutputUrl(null)
-    setOutputSize(0)
-    const url = URL.createObjectURL(file)
-    setPreviewUrl(url)
-    
-    // Upload to server for metadata
-    uploadFile(file)
-  }, [])
 
   const uploadFile = async (file: File) => {
     try {
@@ -121,6 +117,15 @@ export default function Home() {
       toast({ title: 'Ошибка загрузки', description: err.message, variant: 'destructive' })
     }
   }
+
+  const handleFileSelect = useCallback((file: File) => {
+    setUploadedFile(file)
+    setOutputUrl(null)
+    setOutputSize(0)
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+    uploadFile(file)
+  }, [uploadFile])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -157,6 +162,11 @@ export default function Home() {
       const url = URL.createObjectURL(blob)
       setOutputUrl(url)
       setOutputSize(Number(res.headers.get('X-Output-Size') || blob.size))
+      const cd = res.headers.get('Content-Disposition')
+      if (cd) {
+        const match = cd.match(/filename="?(.+?)"?$/)
+        if (match) setOutputFilename(match[1])
+      }
       toast({ title: 'Готово!', description: 'GIF успешно обработан' })
     } catch (err: any) {
       toast({ title: 'Ошибка', description: err.message, variant: 'destructive' })
@@ -183,6 +193,11 @@ export default function Home() {
       const url = URL.createObjectURL(blob)
       setOutputUrl(url)
       setOutputSize(Number(res.headers.get('X-Output-Size') || blob.size))
+      const cd = res.headers.get('Content-Disposition')
+      if (cd) {
+        const match = cd.match(/filename="?(.+?)"?$/)
+        if (match) setOutputFilename(match[1])
+      }
       toast({ title: 'Готово!', description: 'GIF успешно создан' })
     } catch (err: any) {
       toast({ title: 'Ошибка', description: err.message, variant: 'destructive' })
@@ -195,7 +210,7 @@ export default function Home() {
     if (!outputUrl) return
     const a = document.createElement('a')
     a.href = outputUrl
-    a.download = `${selectedTool}-result.gif`
+    a.download = outputFilename
     a.click()
   }
 
@@ -381,6 +396,8 @@ export default function Home() {
       fileInputRef={fileInputRef}
       acceptTypes={acceptTypes}
       onProcess={processGif}
+      onProcessFormData={processWithFormData}
+      onResetOutput={() => { setOutputUrl(null); setOutputSize(0); setOutputFilename('result.gif') }}
       onDownload={downloadResult}
       onBack={goBack}
     />
@@ -456,6 +473,8 @@ function StandardToolView({
   fileInputRef,
   acceptTypes,
   onProcess,
+  onProcessFormData,
+  onResetOutput,
   onDownload,
   onBack,
 }: {
@@ -476,6 +495,8 @@ function StandardToolView({
   fileInputRef: React.RefObject<HTMLInputElement>
   acceptTypes: string
   onProcess: (endpoint: string, body: any) => void
+  onProcessFormData: (endpoint: string, formData: FormData) => void
+  onResetOutput: () => void
   onDownload: () => void
   onBack: () => void
 }) {
@@ -484,8 +505,13 @@ function StandardToolView({
   const [maintainAspect, setMaintainAspect] = useState(true)
   const [cropX, setCropX] = useState(0)
   const [cropY, setCropY] = useState(0)
-  const [cropW, setCropW] = useState(200)
-  const [cropH, setCropH] = useState(200)
+  const [cropW, setCropW] = useState(0)
+  const [cropH, setCropH] = useState(0)
+  const [cropShape, setCropShape] = useState<'free' | 'square'>('free')
+  const [cropHasSelection, setCropHasSelection] = useState(false)
+  const [cropVisible, setCropVisible] = useState(false)
+  const cropDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; origW: number; origH: number; mode: string } | null>(null)
+  const previewImgRef = useRef<HTMLImageElement>(null)
   const [rotateAngle, setRotateAngle] = useState(90)
   const [effect, setEffect] = useState('grayscale')
   const [speedMultiplier, setSpeedMultiplier] = useState(2)
@@ -498,6 +524,214 @@ function StandardToolView({
   const [addTextX, setAddTextX] = useState(10)
   const [addTextY, setAddTextY] = useState(30)
   const [addTextStroke, setAddTextStroke] = useState('#000000')
+  const [textPlaced, setTextPlaced] = useState(false)
+  const textDragRef = useRef<{ mode: string; startX: number; startY: number; origX: number; origY: number; origSize: number } | null>(null)
+
+  const handleTextImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (tool?.id !== 'add-text') return
+    const img = e.currentTarget
+    const rect = img.getBoundingClientRect()
+    const sx = (img.naturalWidth || 1) / rect.width
+    const sy = (img.naturalHeight || 1) / rect.height
+    const mx = (e.clientX - rect.left) * sx
+    const my = (e.clientY - rect.top) * sy
+    setAddTextX(Math.round(mx))
+    setAddTextY(Math.round(my))
+    if (addText) setTextPlaced(true)
+  }
+
+  const handleTextMouseDown = (e: React.MouseEvent) => {
+    if (!textPlaced || !addText) return
+    e.preventDefault()
+    e.stopPropagation()
+    textDragRef.current = { mode: 'move', startX: e.clientX, startY: e.clientY, origX: addTextX, origY: addTextY, origSize: addTextFontSize }
+    const onMove = (ev: globalThis.MouseEvent) => {
+      if (!textDragRef.current) return
+      const dx = (ev.clientX - textDragRef.current.startX) / ((previewImgRef.current?.getBoundingClientRect().width || 1) / (previewImgRef.current?.naturalWidth || 1))
+      const dy = (ev.clientY - textDragRef.current.startY) / ((previewImgRef.current?.getBoundingClientRect().height || 1) / (previewImgRef.current?.naturalHeight || 1))
+      setAddTextX(Math.round(Math.max(0, textDragRef.current.origX + dx)))
+      setAddTextY(Math.round(Math.max(0, textDragRef.current.origY + dy)))
+    }
+    const onUp = () => {
+      textDragRef.current = null
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  const handleTextCornerDown = (e: React.MouseEvent, corner: string) => {
+    if (!textPlaced || !addText) return
+    e.preventDefault()
+    e.stopPropagation()
+    textDragRef.current = { mode: corner, startX: e.clientX, startY: e.clientY, origX: addTextX, origY: addTextY, origSize: addTextFontSize }
+    const onMove = (ev: globalThis.MouseEvent) => {
+      if (!textDragRef.current) return
+      const img = previewImgRef.current
+      if (!img) return
+      const rect = img.getBoundingClientRect()
+      const sx = (img.naturalWidth || 1) / rect.width
+      const dx = (ev.clientX - textDragRef.current.startX) * sx
+      const newSize = Math.max(8, Math.min(200, textDragRef.current.origSize + dx))
+      setAddTextFontSize(Math.round(newSize))
+    }
+    const onUp = () => {
+      textDragRef.current = null
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  const [textScale, setTextScale] = useState(1)
+  const textContainerRef = useRef<HTMLDivElement>(null)
+
+  const recalcTextScale = useCallback(() => {
+    const img = previewImgRef.current
+    if (img) {
+      setTextScale(img.getBoundingClientRect().width / (img.naturalWidth || 1))
+    }
+  }, [])
+
+  useEffect(() => { recalcTextScale() }, [recalcTextScale])
+  useEffect(() => {
+    if (tool?.id !== 'add-text') return
+    const onResize = () => recalcTextScale()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [tool?.id, recalcTextScale])
+
+  const resetCropToFull = () => {
+    setCropX(0); setCropY(0); setCropW(0); setCropH(0)
+    setCropHasSelection(false)
+    setCropVisible(false)
+  }
+
+  const [cropOverlayStyle, setCropOverlayStyle] = useState<React.CSSProperties>({ display: 'none' })
+
+  const updateCropOverlay = useCallback(() => {
+    if (!cropVisible || !cropW || !cropH || !previewImgRef.current) {
+      setCropOverlayStyle({ display: 'none' })
+      return
+    }
+    const img = previewImgRef.current
+    const rect = img.getBoundingClientRect()
+    const sx = rect.width / (img.naturalWidth || 1)
+    const sy = rect.height / (img.naturalHeight || 1)
+    setCropOverlayStyle({
+      display: 'block',
+      position: 'absolute',
+      left: `${cropX * sx}px`,
+      top: `${cropY * sy}px`,
+      width: `${cropW * sx}px`,
+      height: `${cropH * sy}px`,
+    })
+  }, [cropVisible, cropX, cropY, cropW, cropH])
+
+  useEffect(() => { updateCropOverlay() }, [updateCropOverlay])
+
+  useEffect(() => {
+    if (tool?.id !== 'crop') return
+    const onResize = () => updateCropOverlay()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [tool?.id, updateCropOverlay])
+
+  const handleCropMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (tool?.id !== 'crop') return
+    const img = previewImgRef.current
+    if (!img) return
+    const rect = img.getBoundingClientRect()
+    const sx = (img.naturalWidth || 1) / rect.width
+    const sy = (img.naturalHeight || 1) / rect.height
+    const mx = (e.clientX - rect.left) * sx
+    const my = (e.clientY - rect.top) * sy
+
+    if (cropHasSelection && cropW > 0 && cropH > 0) {
+      const dx = e.clientX - rect.left
+      const dy = e.clientY - rect.top
+      const corners = [
+        { id: 'tl', x: cropX / sx, y: cropY / sy },
+        { id: 'tr', x: (cropX + cropW) / sx, y: cropY / sy },
+        { id: 'bl', x: cropX / sx, y: (cropY + cropH) / sy },
+        { id: 'br', x: (cropX + cropW) / sx, y: (cropY + cropH) / sy },
+      ]
+      for (const c of corners) {
+        if (Math.abs(dx - c.x) < 14 && Math.abs(dy - c.y) < 14) {
+          cropDragRef.current = { startX: mx, startY: my, origX: cropX, origY: cropY, origW: cropW, origH: cropH, mode: c.id }
+          e.preventDefault()
+          return
+        }
+      }
+      if (dx >= cropX / sx && dx <= (cropX + cropW) / sx && dy >= cropY / sy && dy <= (cropY + cropH) / sy) {
+        cropDragRef.current = { startX: mx, startY: my, origX: cropX, origY: cropY, origW: cropW, origH: cropH, mode: 'move' }
+        e.preventDefault()
+        return
+      }
+    }
+
+    const ix = Math.round(mx)
+    const iy = Math.round(my)
+    setCropX(ix)
+    setCropY(iy)
+    setCropW(0)
+    setCropH(0)
+    setCropHasSelection(false)
+    setCropVisible(true)
+    cropDragRef.current = { startX: mx, startY: my, origX: ix, origY: iy, origW: 0, origH: 0, mode: 'create' }
+    e.preventDefault()
+  }
+
+  const handleCropMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
+    const drag = cropDragRef.current
+    const img = previewImgRef.current
+    if (!drag || !img) return
+    const rect = img.getBoundingClientRect()
+    const sx = (img.naturalWidth || 1) / rect.width
+    const sy = (img.naturalHeight || 1) / rect.height
+    const mx = (e.clientX - rect.left) * sx
+    const my = (e.clientY - rect.top) * sy
+    const maxW = uploadMeta?.width || (img.naturalWidth || 9999)
+    const maxH = uploadMeta?.height || (img.naturalHeight || 9999)
+
+    if (drag.mode === 'create') {
+      let x1 = Math.max(0, Math.min(drag.startX, mx))
+      let y1 = Math.max(0, Math.min(drag.startY, my))
+      let w = Math.abs(mx - drag.startX)
+      let h = Math.abs(my - drag.startY)
+      if (cropShape === 'square') { const s = Math.max(w, h); w = s; h = s; if (mx < drag.startX) x1 = drag.startX - s; if (my < drag.startY) y1 = drag.startY - s }
+      x1 = Math.max(0, x1); y1 = Math.max(0, y1)
+      w = Math.min(w, maxW - x1); h = Math.min(h, maxH - y1)
+      setCropX(Math.round(x1)); setCropY(Math.round(y1)); setCropW(Math.round(w)); setCropH(Math.round(h))
+    } else if (drag.mode === 'move') {
+      const dx = mx - drag.startX
+      const dy = my - drag.startY
+      let nx = Math.max(0, Math.min(maxW - drag.origW, drag.origX + dx))
+      let ny = Math.max(0, Math.min(maxH - drag.origH, drag.origY + dy))
+      setCropX(Math.round(nx)); setCropY(Math.round(ny))
+    } else {
+      const dx = mx - drag.startX
+      const dy = my - drag.startY
+      let nx = drag.origX, ny = drag.origY, nw = drag.origW, nh = drag.origH
+      if (drag.mode === 'br') { nw = Math.max(20, drag.origW + dx); nh = Math.max(20, drag.origH + dy) }
+      else if (drag.mode === 'tr') { nw = Math.max(20, drag.origW + dx); nh = Math.max(20, drag.origH - dy); ny = drag.origY + drag.origH - nh }
+      else if (drag.mode === 'bl') { nw = Math.max(20, drag.origW - dx); nh = Math.max(20, drag.origH + dy); nx = drag.origX + drag.origW - nw }
+      else if (drag.mode === 'tl') { nw = Math.max(20, drag.origW - dx); nh = Math.max(20, drag.origH - dy); nx = drag.origX + drag.origW - nw; ny = drag.origY + drag.origH - nh }
+      if (cropShape === 'square') { const s = Math.max(nw, nh); nw = s; nh = s }
+      nx = Math.max(0, nx); ny = Math.max(0, ny)
+      nw = Math.min(nw, maxW - nx); nh = Math.min(nh, maxH - ny)
+      setCropX(Math.round(nx)); setCropY(Math.round(ny)); setCropW(Math.round(nw)); setCropH(Math.round(nh))
+    }
+  }
+
+  const handleCropMouseUp = () => {
+    if (cropDragRef.current) {
+      cropDragRef.current = null
+      setCropHasSelection(cropW > 0 && cropH > 0)
+    }
+  }
 
   const handleProcess = () => {
     if (!uploadMeta?.inputPath) return
@@ -511,13 +745,16 @@ function StandardToolView({
           maintainAspect,
         })
         break
-      case 'crop':
-        onProcess('crop', {
-          inputPath: uploadMeta.inputPath,
-          x: cropX, y: cropY,
-          width: cropW, height: cropH,
-        })
+      case 'crop': {
+        const fd = new FormData()
+        if (file) fd.append('file', file)
+        fd.append('x', String(cropX))
+        fd.append('y', String(cropY))
+        fd.append('width', String(cropW))
+        fd.append('height', String(cropH))
+        onProcessFormData('crop', fd)
         break
+      }
       case 'rotate':
         onProcess('rotate', {
           inputPath: uploadMeta.inputPath,
@@ -678,25 +915,49 @@ function StandardToolView({
                   {/* CROP OPTIONS */}
                   {tool.id === 'crop' && (
                     <>
+                      <div className="space-y-2">
+                        <Label>Форма обрезки</Label>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setCropShape('free')}
+                            className={`flex-1 p-2 rounded-lg border-2 text-sm font-medium transition-colors ${cropShape === 'free' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}
+                          >
+                            Прямоугольная
+                          </button>
+                          <button
+                            onClick={() => setCropShape('square')}
+                            className={`flex-1 p-2 rounded-lg border-2 text-sm font-medium transition-colors ${cropShape === 'square' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}
+                          >
+                            Квадрат
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {cropHasSelection ? 'Перетаскивайте область или тяните за уголки' : 'Нажмите и тяните на превью чтобы выбрать область'}
+                      </p>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-2">
                           <Label>X (px)</Label>
-                          <Input type="number" value={cropX} onChange={e => setCropX(Number(e.target.value))} min={0} />
+                          <Input type="number" value={cropX} onChange={e => setCropX(Math.max(0, Number(e.target.value)))} min={0} />
                         </div>
                         <div className="space-y-2">
                           <Label>Y (px)</Label>
-                          <Input type="number" value={cropY} onChange={e => setCropY(Number(e.target.value))} min={0} />
+                          <Input type="number" value={cropY} onChange={e => setCropY(Math.max(0, Number(e.target.value)))} min={0} />
                         </div>
                         <div className="space-y-2">
                           <Label>Ширина (px)</Label>
-                          <Input type="number" value={cropW} onChange={e => setCropW(Number(e.target.value))} min={1} />
+                          <Input type="number" value={cropW} onChange={e => setCropW(Math.max(1, Number(e.target.value)))} min={1} />
                         </div>
                         <div className="space-y-2">
                           <Label>Высота (px)</Label>
-                          <Input type="number" value={cropH} onChange={e => setCropH(Number(e.target.value))} min={1} />
+                          <Input type="number" value={cropH} onChange={e => setCropH(Math.max(1, Number(e.target.value)))} min={1} />
                         </div>
                       </div>
-                      <p className="text-xs text-muted-foreground">Укажите координаты и размер области обрезки</p>
+                      {uploadMeta && (
+                        <p className="text-xs text-muted-foreground">
+                          Изображение: {uploadMeta.width}×{uploadMeta.height}px
+                        </p>
+                      )}
                     </>
                   )}
 
@@ -881,13 +1142,23 @@ function StandardToolView({
                         <Label>Текст</Label>
                         <Input
                           value={addText}
-                          onChange={e => setAddTextText(e.target.value)}
+                          onChange={e => { setAddTextText(e.target.value); setTextPlaced(false) }}
                           placeholder="Введите текст..."
                         />
                       </div>
                       <div className="space-y-2">
                         <Label>Размер шрифта</Label>
-                        <Input type="number" value={addTextFontSize} onChange={e => setAddTextFontSize(Number(e.target.value))} min={8} max={200} />
+                        <div className="flex items-center gap-2">
+                          <Input type="number" value={addTextFontSize} onChange={e => setAddTextFontSize(Number(e.target.value))} min={8} max={200} className="w-20" />
+                          <Slider
+                            value={[addTextFontSize]}
+                            onValueChange={([v]) => setAddTextFontSize(v)}
+                            min={8}
+                            max={200}
+                            step={2}
+                            className="flex-1"
+                          />
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-2">
@@ -905,16 +1176,9 @@ function StandardToolView({
                           </div>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-2">
-                          <Label>Позиция X</Label>
-                          <Input type="number" value={addTextX} onChange={e => setAddTextX(Number(e.target.value))} min={0} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Позиция Y</Label>
-                          <Input type="number" value={addTextY} onChange={e => setAddTextY(Number(e.target.value))} min={0} />
-                        </div>
-                      </div>
+                      <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded-lg">
+                        Нажмите на изображение чтобы разместить текст. Перетаскивайте текст мышью для перемещения, тяните за уголки для изменения размера.
+                      </p>
                     </div>
                   )}
 
@@ -967,30 +1231,160 @@ function StandardToolView({
                 <CardContent>
                   <div className="bg-muted/30 rounded-lg p-4 flex items-center justify-center min-h-[300px]">
                     {previewUrl && !outputUrl && (
-                      <img
-                        src={previewUrl}
-                        alt="Исходный GIF"
-                        className="max-w-full max-h-[500px] rounded-lg shadow-sm"
-                      />
+                      <div className="relative inline-block select-none">
+                        <img
+                          ref={previewImgRef}
+                          src={previewUrl}
+                          alt="Исходный"
+                          className="max-w-full max-h-[500px] rounded-lg shadow-sm"
+                          style={
+                            tool?.id === 'crop' ? { cursor: 'crosshair' } :
+                            tool?.id === 'add-text' && addText ? { cursor: 'crosshair' } :
+                            undefined
+                          }
+                          onMouseDown={tool?.id === 'crop' ? handleCropMouseDown : tool?.id === 'add-text' ? handleTextImageClick : undefined}
+                          onMouseMove={tool?.id === 'crop' ? handleCropMouseMove : undefined}
+                          onMouseUp={tool?.id === 'crop' ? handleCropMouseUp : undefined}
+                          onMouseLeave={tool?.id === 'crop' ? handleCropMouseUp : undefined}
+                        />
+                        {/* CROP OVERLAY */}
+                        {tool?.id === 'crop' && (
+                          <div
+                            className="absolute border-2 border-white pointer-events-none"
+                            style={{ ...cropOverlayStyle, boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)' }}
+                          >
+                            <div className="absolute inset-0 border border-dashed border-white/60" />
+                            <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/20" />
+                            <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/20" />
+                            <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
+                            <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
+                            <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white rounded-full shadow cursor-nwse-resize" />
+                            <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white rounded-full shadow cursor-nesw-resize" />
+                            <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white rounded-full shadow cursor-nesw-resize" />
+                            <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white rounded-full shadow cursor-nwse-resize" />
+                            <div className="absolute top-2 left-1/2 -translate-x-1/2 text-xs bg-black/80 text-white px-2 py-1 rounded-md whitespace-nowrap font-mono">{cropW} × {cropH}</div>
+                            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-2 pointer-events-auto">
+                              <button onClick={resetCropToFull} className="px-3 py-1.5 text-xs bg-white/90 hover:bg-white text-black rounded-md shadow font-medium transition-colors">
+                                Сбросить
+                              </button>
+                              <button
+                                onClick={handleProcess}
+                                disabled={processing}
+                                className="px-4 py-1.5 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-md shadow font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                              >
+                                {processing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Scissors className="h-3 w-3" />}
+                                Вырезать
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {tool?.id === 'crop' && !cropHasSelection && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-black/60 text-white text-sm px-3 py-1.5 rounded-md">
+                              Нажмите и тяните для выделения области
+                            </div>
+                          </div>
+                        )}
+                        {/* TEXT OVERLAY */}
+                        {tool?.id === 'add-text' && addText && (
+                          <div
+                            className="absolute"
+                            style={{
+                              left: `${addTextX * textScale}px`,
+                              top: `${addTextY * textScale}px`,
+                              cursor: textPlaced ? 'move' : 'default',
+                            }}
+                            onMouseDown={handleTextMouseDown}
+                          >
+                            <svg
+                              width="1"
+                              height={addTextFontSize + 4}
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                overflow: 'visible',
+                                width: `${addText.length * addTextFontSize * 0.7}px`,
+                                height: `${addTextFontSize + 4}px`,
+                              }}
+                            >
+                              <text
+                                x="0"
+                                y={addTextFontSize}
+                                fontSize={addTextFontSize}
+                                fill={addTextColor}
+                                stroke={addTextStroke}
+                                strokeWidth={2}
+                                fontFamily="Arial, Helvetica, sans-serif"
+                              >
+                                {addText}
+                              </text>
+                            </svg>
+                            {/* Resize handles */}
+                            {textPlaced && (
+                              <>
+                                <div
+                                  className="absolute -top-1 -left-1 w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize z-10"
+                                  onMouseDown={(e) => handleTextCornerDown(e, 'tl')}
+                                  style={{ transform: `scale(${1/textScale})` }}
+                                />
+                                <div
+                                  className="absolute -top-1 -right-1 w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nesw-resize z-10"
+                                  onMouseDown={(e) => handleTextCornerDown(e, 'tr')}
+                                  style={{ transform: `scale(${1/textScale})` }}
+                                />
+                                <div
+                                  className="absolute -bottom-1 -left-1 w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nesw-resize z-10"
+                                  onMouseDown={(e) => handleTextCornerDown(e, 'bl')}
+                                  style={{ transform: `scale(${1/textScale})` }}
+                                />
+                                <div
+                                  className="absolute -bottom-1 -right-1 w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize z-10"
+                                  onMouseDown={(e) => handleTextCornerDown(e, 'br')}
+                                  style={{ transform: `scale(${1/textScale})` }}
+                                />
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {tool?.id === 'add-text' && !addText && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-black/60 text-white text-sm px-3 py-1.5 rounded-md">
+                              Введите текст и нажмите на изображение
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {outputUrl && showOriginal && previewUrl && (
-                      <img
-                        src={previewUrl}
-                        alt="Оригинал"
-                        className="max-w-full max-h-[500px] rounded-lg shadow-sm"
-                      />
+                      <img src={previewUrl} alt="Оригинал" className="max-w-full max-h-[500px] rounded-lg shadow-sm" />
                     )}
                     {outputUrl && !showOriginal && (
-                      <img
-                        src={outputUrl}
-                        alt="Результат"
-                        className="max-w-full max-h-[500px] rounded-lg shadow-sm"
-                      />
+                      <img src={outputUrl} alt="Результат" className="max-w-full max-h-[500px] rounded-lg shadow-sm" />
                     )}
                     {!previewUrl && (
                       <p className="text-muted-foreground">Загрузите GIF-файл</p>
                     )}
                   </div>
+                  {outputUrl && tool?.id === 'crop' && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => {
+                          onResetOutput()
+                          resetCropToFull()
+                        }}
+                      >
+                        <RotateCw className="mr-2 h-4 w-4" />
+                        Обрезать заново
+                      </Button>
+                      <Button className="flex-1" onClick={onDownload}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Скачать
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1433,10 +1827,11 @@ function SplitView({
   onBack: () => void
 }) {
   const [splitFrames, setSplitFrames] = useState<{ name: string; data: string; size: number }[]>([])
+  const [splitting, setSplitting] = useState(false)
 
   const handleSplit = () => {
     if (!uploadMeta?.inputPath) return
-    setProcessing(true)
+    setSplitting(true)
     fetch('/api/gif/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1450,7 +1845,7 @@ function SplitView({
       .catch(err => {
         // toast handled elsewhere
       })
-      .finally(() => setProcessing(false))
+      .finally(() => setSplitting(false))
   }
 
   const downloadFrame = (frame: { name: string; data: string }) => {
@@ -1499,8 +1894,8 @@ function SplitView({
                         {uploadMeta.width}×{uploadMeta.height}px • {uploadMeta.pages} кадров • {formatFileSize(uploadMeta.inputSize)}
                       </p>
                     )}
-                    <Button onClick={handleSplit} disabled={processing}>
-                      {processing ? (
+                    <Button onClick={handleSplit} disabled={splitting}>
+                      {splitting ? (
                         <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Разделение...</>
                       ) : (
                         'Разделить на кадры'
@@ -1957,7 +2352,7 @@ function RemoveBgView({
   const [sourcePreview, setSourcePreview] = useState<string | null>(null)
   const [bgColor, setBgColor] = useState('#ffffff')
   const [tolerance, setTolerance] = useState(30)
-  const [mode, setMode] = useState<'flood' | 'global' | 'exact'>('flood')
+  const [mode, setMode] = useState<'ai' | 'flood' | 'global' | 'exact'>('ai')
   const [pickColor, setPickColor] = useState(false)
   const [sourceMeta, setSourceMeta] = useState<{ width: number; height: number; size: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -2092,91 +2487,20 @@ function RemoveBgView({
               <CardContent className="space-y-4">
                 {sourceFile ? (
                   <>
-                    {/* Color picker */}
-                    <div className="space-y-2">
-                      <Label>Цвет фона для удаления</Label>
-                      <div className="flex gap-2 items-center">
-                        <div className="relative">
-                          <input
-                            type="color"
-                            value={bgColor}
-                            onChange={e => setBgColor(e.target.value)}
-                            className="w-12 h-10 rounded-lg border-2 cursor-pointer"
-                          />
-                        </div>
-                        <Input
-                          value={bgColor}
-                          onChange={e => setBgColor(e.target.value)}
-                          className="flex-1 font-mono"
-                          placeholder="#ffffff"
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handlePickColor}
-                          className={pickColor ? 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300' : ''}
-                        >
-                          📍 Пипетка
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Выберите цвет, который нужно сделать прозрачным, или используйте пипетку
-                      </p>
-                    </div>
-
-                    {/* Quick color presets */}
-                    <div className="space-y-2">
-                      <Label>Быстрый выбор</Label>
-                      <div className="flex gap-2 flex-wrap">
-                        {[
-                          { color: '#ffffff', label: 'Белый', border: 'border-gray-300' },
-                          { color: '#000000', label: 'Чёрный', border: 'border-gray-600' },
-                          { color: '#00ff00', label: 'Зелёный', border: 'border-green-300' },
-                          { color: '#0000ff', label: 'Синий', border: 'border-blue-300' },
-                          { color: '#ff0000', label: 'Красный', border: 'border-red-300' },
-                          { color: '#ffff00', label: 'Жёлтый', border: 'border-yellow-300' },
-                        ].map(preset => (
-                          <button
-                            key={preset.color}
-                            onClick={() => setBgColor(preset.color)}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border ${preset.border} hover:shadow-sm transition-shadow ${bgColor === preset.color ? 'ring-2 ring-fuchsia-400' : ''}`}
-                          >
-                            <span
-                              className="w-3 h-3 rounded-sm inline-block"
-                              style={{ backgroundColor: preset.color, border: preset.color === '#ffffff' ? '1px solid #ccc' : 'none' }}
-                            />
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Tolerance */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label>Толерантность</Label>
-                        <span className="text-sm font-medium">{tolerance}</span>
-                      </div>
-                      <Slider
-                        value={[tolerance]}
-                        onValueChange={([v]) => setTolerance(v)}
-                        min={0}
-                        max={150}
-                        step={1}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Точное совпадение</span>
-                        <span>Широкий диапазон</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Чем выше значение, тем больше похожих оттенков будет удалено
-                      </p>
-                    </div>
-
-                    {/* Mode */}
+                    {/* Mode - AI first */}
                     <div className="space-y-2">
                       <Label>Режим удаления</Label>
                       <div className="space-y-2">
+                        <button
+                          onClick={() => setMode('ai')}
+                          className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${mode === 'ai' ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-border hover:border-fuchsia-200'}`}
+                        >
+                          <p className="font-medium text-sm flex items-center gap-2">
+                            <span className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white text-xs px-1.5 py-0.5 rounded font-bold">AI</span>
+                            Умное удаление
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Нейросеть автоматически определяет объект и удаляет фон. Лучшее качество</p>
+                        </button>
                         <button
                           onClick={() => setMode('flood')}
                           className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${mode === 'flood' ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-border hover:border-fuchsia-200'}`}
@@ -2199,6 +2523,93 @@ function RemoveBgView({
                           <p className="text-xs text-muted-foreground mt-0.5">Удаляет только пиксели с точным совпадением цвета (без толерантности)</p>
                         </button>
                       </div>
+                    </div>
+
+                    {/* Color settings - hidden in AI mode */}
+                    {mode !== 'ai' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Цвет фона для удаления</Label>
+                          <div className="flex gap-2 items-center">
+                            <div className="relative">
+                              <input
+                                type="color"
+                                value={bgColor}
+                                onChange={e => setBgColor(e.target.value)}
+                                className="w-12 h-10 rounded-lg border-2 cursor-pointer"
+                              />
+                            </div>
+                            <Input
+                              value={bgColor}
+                              onChange={e => setBgColor(e.target.value)}
+                              className="flex-1 font-mono"
+                              placeholder="#ffffff"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handlePickColor}
+                              className={pickColor ? 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300' : ''}
+                            >
+                              Пипетка
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Выберите цвет, который нужно сделать прозрачным, или используйте пипетку
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Быстрый выбор</Label>
+                          <div className="flex gap-2 flex-wrap">
+                            {[
+                              { color: '#ffffff', label: 'Белый', border: 'border-gray-300' },
+                              { color: '#000000', label: 'Чёрный', border: 'border-gray-600' },
+                              { color: '#00ff00', label: 'Зелёный', border: 'border-green-300' },
+                              { color: '#0000ff', label: 'Синий', border: 'border-blue-300' },
+                              { color: '#ff0000', label: 'Красный', border: 'border-red-300' },
+                              { color: '#ffff00', label: 'Жёлтый', border: 'border-yellow-300' },
+                            ].map(preset => (
+                              <button
+                                key={preset.color}
+                                onClick={() => setBgColor(preset.color)}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border ${preset.border} hover:shadow-sm transition-shadow ${bgColor === preset.color ? 'ring-2 ring-fuchsia-400' : ''}`}
+                              >
+                                <span
+                                  className="w-3 h-3 rounded-sm inline-block"
+                                  style={{ backgroundColor: preset.color, border: preset.color === '#ffffff' ? '1px solid #ccc' : 'none' }}
+                                />
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Tolerance - always visible */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label>{mode === 'ai' ? 'Чувствительность' : 'Толерантность'}</Label>
+                        <span className="text-sm font-medium">{tolerance}</span>
+                      </div>
+                      <Slider
+                        value={[tolerance]}
+                        onValueChange={([v]) => setTolerance(v)}
+                        min={0}
+                        max={150}
+                        step={1}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{mode === 'ai' ? 'Менее агрессивно' : 'Точное совпадение'}</span>
+                        <span>{mode === 'ai' ? 'Более агрессивно' : 'Широкий диапазон'}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {mode === 'ai'
+                          ? 'Чем выше — тем больше фона удаляется, но выше риск зацепить объект'
+                          : 'Чем выше значение, тем больше похожих оттенков будет удалено'
+                        }
+                      </p>
                     </div>
 
                     <Button
@@ -2233,19 +2644,15 @@ function RemoveBgView({
                 <div className="space-y-3 text-sm">
                   <div className="flex items-start gap-2">
                     <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</span>
-                    <p>Загрузите GIF или изображение с однотонным фоном</p>
+                    <p>Загрузите GIF или изображение</p>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
-                    <p>Выберите цвет фона с помощью пипетки или палитры</p>
+                    <p><strong>AI</strong> — нейросеть сама определит объект и удалит фон. Для однотонного фона используйте режимы по цвету</p>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
-                    <p>Настройте толерантность — чем выше, тем больше оттенков удалится</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="bg-fuchsia-100 text-fuchsia-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</span>
-                    <p>Режим «Заливка» удаляет только фон от краёв, «Глобальный» — все совпадающие пиксели</p>
+                    <p>В ручных режимах: выберите цвет и настройте толерантность</p>
                   </div>
                 </div>
               </CardContent>

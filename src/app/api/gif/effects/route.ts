@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { readFile, writeFile, unlink } from 'fs/promises'
+import { readFile, unlink } from 'fs/promises'
 import path from 'path'
 
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
 
 const effectHandlers: Record<string, (pipeline: sharp.Sharp) => sharp.Sharp> = {
   grayscale: (p) => p.grayscale(),
@@ -47,17 +47,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
     }
 
-    const id = path.basename(inputPath).replace('-input.gif', '')
+    const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
+    const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
     const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
 
-    const inputBuffer = await readFile(inputPath)
+    const inputBuffer = await readFile(safeInputPath)
     let pipeline = sharp(inputBuffer, { animated: true })
 
-    // Apply the selected effect
     const handler = effectHandlers[effect]
-    if (handler) {
-      pipeline = handler(pipeline)
+    if (!handler) {
+      return NextResponse.json({ error: `Unknown effect: ${effect}` }, { status: 400 })
     }
+    pipeline = handler(pipeline)
 
     // Apply additional adjustments
     const modulateOptions: Record<string, number> = {}
@@ -76,7 +77,6 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(inputPath) } catch {}
     try { await unlink(outputPath) } catch {}
 
     return new NextResponse(outputBuffer, {

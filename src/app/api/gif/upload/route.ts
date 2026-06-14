@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { writeFile, readFile, unlink, mkdir } from 'fs/promises'
+import { writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 
-const TMP_DIR = '/home/z/my-project/tmp'
+const TMP_DIR = path.join(process.cwd(), 'tmp')
+const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
+const ALLOWED_MIME_TYPES = ['image/gif', 'image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'video/mp4', 'video/webm']
 
 async function ensureTmpDir() {
   if (!existsSync(TMP_DIR)) {
@@ -22,9 +24,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: 'File too large (max 100MB)' }, { status: 400 })
+    }
+
+    if (!ALLOWED_MIME_TYPES.includes(file.type) && !file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+      return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 })
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer())
     const id = randomUUID()
-    const inputPath = path.join(TMP_DIR, `${id}-input.gif`)
+    const ext = file.name.split('.').pop() || 'gif'
+    const inputPath = path.join(TMP_DIR, `${id}-input.${ext}`)
     await writeFile(inputPath, buffer)
 
     const metadata = await sharp(inputPath, { animated: true }).metadata()
