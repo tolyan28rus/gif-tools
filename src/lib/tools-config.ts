@@ -11,6 +11,7 @@ export type ToolType =
   | 'add-text'
   | 'make-gif'
   | 'video-to-gif'
+  | 'convert'
 
 export interface ToolConfig {
   id: ToolType
@@ -117,5 +118,13 @@ export const tools: ToolConfig[] = [
     icon: '📝',
     acceptTypes: 'image/gif',
     color: 'bg-pink-500',
+  },
+  {
+    id: 'convert',
+    name: 'Конвертация',
+    description: 'GIF → MP4/WebM, GIF → APNG, изображение → формат',
+    icon: '🔀',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp,image/bmp,video/mp4,video/webm',
+    color: 'bg-violet-500',
   },
 ]

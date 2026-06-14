@@ -23,3 +23,38 @@ Stage Summary:
 - Server-side processing using sharp + ffmpeg
 - Responsive design with Tailwind CSS and shadcn/ui
 - All routes verified working via lint and browser testing
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Add Convert (Конвертация) tool to GIF Tools
+
+Work Log:
+- Added 'convert' to ToolType union in tools-config.ts
+- Added convert tool entry with violet color, ArrowRightLeft icon, multi-format accept types
+- Created /api/gif/convert/route.ts with support for:
+  - GIF → MP4 (H.264 with CRF quality)
+  - GIF → WebM (VP9 with quality)
+  - GIF → APNG (animated PNG)
+  - GIF → WebP (animated, via sharp)
+  - Image → Image (PNG, JPG, WebP, GIF, BMP, TIFF via sharp)
+  - Video → Video/GIF (via ffmpeg)
+- Added ArrowRightLeft icon import from lucide-react
+- Added convert icon and color mappings in page.tsx
+- Created ConvertView component with:
+  - Smart auto-detection of best target format based on source file type
+  - Visual source → target format badges
+  - Format selection grid with descriptions
+  - Quality slider (10-100%)
+  - Video preview support (HTML5 video player for MP4/WebM)
+  - Side-by-side comparison view (original vs result)
+  - File size change percentage badges
+- Updated badge count from 12 to 13
+- Added render case for 'convert' tool in main Home component
+- Lint passes, dev server compiles, browser verified all 13 tools render correctly
+
+Stage Summary:
+- Convert tool fully functional with 6 conversion categories
+- API supports GIF→Video, GIF→APNG, GIF→WebP, Image→Format, Video→GIF, Video→Video
+- ConvertView has auto-format detection, quality control, comparison view
+- All 13 tools now available in the app

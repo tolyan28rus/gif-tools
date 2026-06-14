@@ -1,0 +1,1922 @@
+     1→'use client'
+     2→
+     3→import { useState, useCallback, useRef } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+     6→import { Input } from '@/components/ui/input'
+     7→import { Label } from '@/components/ui/label'
+     8→import { Slider } from '@/components/ui/slider'
+     9→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    10→import { Badge } from '@/components/ui/badge'
+    11→import { Separator } from '@/components/ui/separator'
+    12→import { Switch } from '@/components/ui/switch'
+    13→import { useToast } from '@/hooks/use-toast'
+    14→import {
+    15→  ArrowLeft,
+    16→  Download,
+    17→  Upload,
+    18→  Loader2,
+    19→  Image as ImageIcon,
+    20→  Film,
+    21→  Maximize2,
+    22→  Crop,
+    23→  RotateCw,
+    24→  Sparkles,
+    25→  Gauge,
+    26→  Rewind,
+    27→  TrendingDown,
+    28→  Scissors,
+    29→  LayoutGrid,
+    30→  Type,
+    31→  Zap,
+    32→  ArrowRightLeft,
+    33→} from 'lucide-react'
+    34→import { tools, type ToolType, type ToolConfig } from '@/lib/tools-config'
+    35→
+    36→// ==================== TOOL ICONS ====================
+    37→const toolIcons: Record<ToolType, React.ReactNode> = {
+    38→  'make-gif': <ImageIcon className="h-5 w-5" />,
+    39→  'video-to-gif': <Film className="h-5 w-5" />,
+    40→  'resize': <Maximize2 className="h-5 w-5" />,
+    41→  'crop': <Crop className="h-5 w-5" />,
+    42→  'rotate': <RotateCw className="h-5 w-5" />,
+    43→  'effects': <Sparkles className="h-5 w-5" />,
+    44→  'speed': <Gauge className="h-5 w-5" />,
+    45→  'reverse': <Rewind className="h-5 w-5" />,
+    46→  'optimize': <TrendingDown className="h-5 w-5" />,
+    47→  'cut': <Scissors className="h-5 w-5" />,
+    48→  'split': <LayoutGrid className="h-5 w-5" />,
+    49→  'add-text': <Type className="h-5 w-5" />,
+    50→  'convert': <ArrowRightLeft className="h-5 w-5" />,
+    51→}
+    52→
+    53→const toolColors: Record<ToolType, string> = {
+    54→  'make-gif': 'from-emerald-500 to-emerald-600',
+    55→  'video-to-gif': 'from-purple-500 to-purple-600',
+    56→  'resize': 'from-sky-500 to-sky-600',
+    57→  'crop': 'from-amber-500 to-amber-600',
+    58→  'rotate': 'from-rose-500 to-rose-600',
+    59→  'effects': 'from-indigo-500 to-indigo-600',
+    60→  'speed': 'from-yellow-500 to-yellow-600',
+    61→  'reverse': 'from-teal-500 to-teal-600',
+    62→  'optimize': 'from-green-500 to-green-600',
+    63→  'cut': 'from-orange-500 to-orange-600',
+    64→  'split': 'from-cyan-500 to-cyan-600',
+    65→  'add-text': 'from-pink-500 to-pink-600',
+    66→  'convert': 'from-violet-500 to-violet-600',
+    67→}
+    68→
+    69→// ==================== FILE SIZE FORMATTER ====================
+    70→function formatFileSize(bytes: number): string {
+    71→  if (bytes < 1024) return `${bytes} B`
+    72→  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    73→  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+    74→}
+    75→
+    76→// ==================== MAIN PAGE ====================
+    77→export default function Home() {
+    78→  const [selectedTool, setSelectedTool] = useState<ToolType | null>(null)
+    79→  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+    80→  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+    81→  const [uploadMeta, setUploadMeta] = useState<any>(null)
+    82→  const [outputUrl, setOutputUrl] = useState<string | null>(null)
+    83→  const [outputSize, setOutputSize] = useState<number>(0)
+    84→  const [processing, setProcessing] = useState(false)
+    85→  const [dragOver, setDragOver] = useState(false)
+    86→  const [showOriginal, setShowOriginal] = useState(false)
+    87→  const fileInputRef = useRef<HTMLInputElement>(null)
+    88→  const { toast } = useToast()
+    89→
+    90→  // Multi-file state for GIF Maker
+    91→  const [makeGifFiles, setMakeGifFiles] = useState<File[]>([])
+    92→  const [makeGifPreviews, setMakeGifPreviews] = useState<string[]>([])
+    93→  const makeGifInputRef = useRef<HTMLInputElement>(null)
+    94→
+    95→  const handleFileSelect = useCallback((file: File) => {
+    96→    setUploadedFile(file)
+    97→    setOutputUrl(null)
+    98→    setOutputSize(0)
+    99→    const url = URL.createObjectURL(file)
+   100→    setPreviewUrl(url)
+   101→    
+   102→    // Upload to server for metadata
+   103→    uploadFile(file)
+   104→  }, [])
+   105→
+   106→  const uploadFile = async (file: File) => {
+   107→    try {
+   108→      const formData = new FormData()
+   109→      formData.append('file', file)
+   110→      const res = await fetch('/api/gif/upload', { method: 'POST', body: formData })
+   111→      const data = await res.json()
+   112→      if (data.error) {
+   113→        toast({ title: 'Ошибка', description: data.error, variant: 'destructive' })
+   114→        return
+   115→      }
+   116→      setUploadMeta(data)
+   117→    } catch (err: any) {
+   118→      toast({ title: 'Ошибка загрузки', description: err.message, variant: 'destructive' })
+   119→    }
+   120→  }
+   121→
+   122→  const handleDrop = useCallback((e: React.DragEvent) => {
+   123→    e.preventDefault()
+   124→    setDragOver(false)
+   125→    const file = e.dataTransfer.files[0]
+   126→    if (file) handleFileSelect(file)
+   127→  }, [handleFileSelect])
+   128→
+   129→  const handleDragOver = useCallback((e: React.DragEvent) => {
+   130→    e.preventDefault()
+   131→    setDragOver(true)
+   132→  }, [])
+   133→
+   134→  const handleDragLeave = useCallback(() => {
+   135→    setDragOver(false)
+   136→  }, [])
+   137→
+   138→  const processGif = async (endpoint: string, body: any) => {
+   139→    setProcessing(true)
+   140→    setOutputUrl(null)
+   141→    try {
+   142→      const res = await fetch(`/api/gif/${endpoint}`, {
+   143→        method: 'POST',
+   144→        headers: { 'Content-Type': 'application/json' },
+   145→        body: JSON.stringify(body),
+   146→      })
+   147→      
+   148→      if (!res.ok) {
+   149→        const data = await res.json().catch(() => ({ error: 'Ошибка обработки' }))
+   150→        throw new Error(data.error || 'Ошибка обработки')
+   151→      }
+   152→
+   153→      const blob = await res.blob()
+   154→      const url = URL.createObjectURL(blob)
+   155→      setOutputUrl(url)
+   156→      setOutputSize(Number(res.headers.get('X-Output-Size') || blob.size))
+   157→      toast({ title: 'Готово!', description: 'GIF успешно обработан' })
+   158→    } catch (err: any) {
+   159→      toast({ title: 'Ошибка', description: err.message, variant: 'destructive' })
+   160→    } finally {
+   161→      setProcessing(false)
+   162→    }
+   163→  }
+   164→
+   165→  const processWithFormData = async (endpoint: string, formData: FormData) => {
+   166→    setProcessing(true)
+   167→    setOutputUrl(null)
+   168→    try {
+   169→      const res = await fetch(`/api/gif/${endpoint}`, {
+   170→        method: 'POST',
+   171→        body: formData,
+   172→      })
+   173→      
+   174→      if (!res.ok) {
+   175→        const data = await res.json().catch(() => ({ error: 'Ошибка обработки' }))
+   176→        throw new Error(data.error || 'Ошибка обработки')
+   177→      }
+   178→
+   179→      const blob = await res.blob()
+   180→      const url = URL.createObjectURL(blob)
+   181→      setOutputUrl(url)
+   182→      setOutputSize(Number(res.headers.get('X-Output-Size') || blob.size))
+   183→      toast({ title: 'Готово!', description: 'GIF успешно создан' })
+   184→    } catch (err: any) {
+   185→      toast({ title: 'Ошибка', description: err.message, variant: 'destructive' })
+   186→    } finally {
+   187→      setProcessing(false)
+   188→    }
+   189→  }
+   190→
+   191→  const downloadResult = () => {
+   192→    if (!outputUrl) return
+   193→    const a = document.createElement('a')
+   194→    a.href = outputUrl
+   195→    a.download = `${selectedTool}-result.gif`
+   196→    a.click()
+   197→  }
+   198→
+   199→  const resetAll = () => {
+   200→    setSelectedTool(null)
+   201→    setUploadedFile(null)
+   202→    setPreviewUrl(null)
+   203→    setUploadMeta(null)
+   204→    setOutputUrl(null)
+   205→    setOutputSize(0)
+   206→    setProcessing(false)
+   207→    setMakeGifFiles([])
+   208→    setMakeGifPreviews([])
+   209→  }
+   210→
+   211→  const goBack = () => {
+   212→    setSelectedTool(null)
+   213→    setUploadedFile(null)
+   214→    setPreviewUrl(null)
+   215→    setUploadMeta(null)
+   216→    setOutputUrl(null)
+   217→    setOutputSize(0)
+   218→    setMakeGifFiles([])
+   219→    setMakeGifPreviews([])
+   220→  }
+   221→
+   222→  const acceptTypes = selectedTool ? tools.find(t => t.id === selectedTool)?.acceptTypes || 'image/gif' : 'image/gif'
+   223→  const currentTool = tools.find(t => t.id === selectedTool)
+   224→
+   225→  // ==================== RENDER: HOME PAGE ====================
+   226→  if (!selectedTool) {
+   227→    return (
+   228→      <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+   229→        <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+   230→          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+   231→            <div className="flex items-center gap-2">
+   232→              <img src="/logo-gif.png" alt="GIF Tools" className="h-8 w-8 rounded-lg" />
+   233→              <h1 className="text-2xl font-bold tracking-tight">GIF Tools</h1>
+   234→            </div>
+   235→            <Badge variant="secondary" className="ml-2">13 инструментов</Badge>
+   236→            <div className="ml-auto text-sm text-muted-foreground hidden sm:block">
+   237→              Бесплатный онлайн-редактор GIF
+   238→            </div>
+   239→          </div>
+   240→        </header>
+   241→
+   242→        <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
+   243→          <div className="text-center mb-10">
+   244→            <h2 className="text-3xl font-bold mb-3">Онлайн-редактор GIF-анимаций</h2>
+   245→            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+   246→              Создавайте, редактируйте и оптимизируйте GIF-анимации прямо в браузере. 
+   247→              Загрузите файл и выберите нужный инструмент.
+   248→            </p>
+   249→          </div>
+   250→
+   251→          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+   252→            {tools.map((tool) => (
+   253→              <Card
+   254→                key={tool.id}
+   255→                className="group cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-2 hover:border-primary/30"
+   256→                onClick={() => setSelectedTool(tool.id)}
+   257→              >
+   258→                <CardHeader className="pb-3">
+   259→                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${toolColors[tool.id]} flex items-center justify-center text-white mb-2 group-hover:scale-110 transition-transform`}>
+   260→                    {toolIcons[tool.id]}
+   261→                  </div>
+   262→                  <CardTitle className="text-lg">{tool.name}</CardTitle>
+   263→                  <CardDescription className="text-sm">{tool.description}</CardDescription>
+   264→                </CardHeader>
+   265→              </Card>
+   266→            ))}
+   267→          </div>
+   268→        </main>
+   269→
+   270→        <footer className="border-t bg-background mt-auto">
+   271→          <div className="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-muted-foreground">
+   272→            GIF Tools — Бесплатный онлайн-редактор GIF-анимаций
+   273→          </div>
+   274→        </footer>
+   275→      </div>
+   276→    )
+   277→  }
+   278→
+   279→  // ==================== RENDER: GIF MAKER ====================
+   280→  if (selectedTool === 'make-gif') {
+   281→    return (
+   282→      <MakeGifView
+   283→        files={makeGifFiles}
+   284→        previews={makeGifPreviews}
+   285→        inputRef={makeGifInputRef}
+   286→        setFiles={setMakeGifFiles}
+   287→        setPreviews={setMakeGifPreviews}
+   288→        processing={processing}
+   289→        outputUrl={outputUrl}
+   290→        outputSize={outputSize}
+   291→        onProcess={processWithFormData}
+   292→        onDownload={downloadResult}
+   293→        onBack={goBack}
+   294→      />
+   295→    )
+   296→  }
+   297→
+   298→  // ==================== RENDER: VIDEO TO GIF ====================
+   299→  if (selectedTool === 'video-to-gif') {
+   300→    return (
+   301→      <VideoToGifView
+   302→        processing={processing}
+   303→        outputUrl={outputUrl}
+   304→        outputSize={outputSize}
+   305→        onProcess={processWithFormData}
+   306→        onDownload={downloadResult}
+   307→        onBack={goBack}
+   308→      />
+   309→    )
+   310→  }
+   311→
+   312→  // ==================== RENDER: CONVERT ====================
+   313→  if (selectedTool === 'convert') {
+   314→    return (
+   315→      <ConvertView
+   316→        processing={processing}
+   317→        outputUrl={outputUrl}
+   318→        outputSize={outputSize}
+   319→        onProcess={processWithFormData}
+   320→        onDownload={downloadResult}
+   321→        onBack={goBack}
+   322→      />
+   323→    )
+   324→  }
+   325→
+   326→  // ==================== RENDER: SPLIT TOOL ====================
+   327→  if (selectedTool === 'split') {
+   328→    return (
+   329→      <SplitView
+   330→        file={uploadedFile}
+   331→        previewUrl={previewUrl}
+   332→        uploadMeta={uploadMeta}
+   333→        processing={processing}
+   334→        onFileSelect={handleFileSelect}
+   335→        onDrop={handleDrop}
+   336→        onDragOver={handleDragOver}
+   337→        onDragLeave={handleDragLeave}
+   338→        dragOver={dragOver}
+   339→        fileInputRef={fileInputRef}
+   340→        acceptTypes={acceptTypes}
+   341→        onProcess={processGif}
+   342→        onBack={goBack}
+   343→      />
+   344→    )
+   345→  }
+   346→
+   347→  // ==================== RENDER: STANDARD TOOL ====================
+   348→  return (
+   349→    <StandardToolView
+   350→      tool={currentTool!}
+   351→      file={uploadedFile}
+   352→      previewUrl={previewUrl}
+   353→      uploadMeta={uploadMeta}
+   354→      processing={processing}
+   355→      outputUrl={outputUrl}
+   356→      outputSize={outputSize}
+   357→      showOriginal={showOriginal}
+   358→      onShowOriginalChange={setShowOriginal}
+   359→      onFileSelect={handleFileSelect}
+   360→      onDrop={handleDrop}
+   361→      onDragOver={handleDragOver}
+   362→      onDragLeave={handleDragLeave}
+   363→      dragOver={dragOver}
+   364→      fileInputRef={fileInputRef}
+   365→      acceptTypes={acceptTypes}
+   366→      onProcess={processGif}
+   367→      onDownload={downloadResult}
+   368→      onBack={goBack}
+   369→    />
+   370→  )
+   371→}
+   372→
+   373→// ==================== UPLOAD AREA COMPONENT ====================
+   374→function UploadArea({
+   375→  onFileSelect,
+   376→  onDrop,
+   377→  onDragOver,
+   378→  onDragLeave,
+   379→  dragOver,
+   380→  fileInputRef,
+   381→  acceptTypes,
+   382→  currentFile,
+   383→}: {
+   384→  onFileSelect: (file: File) => void
+   385→  onDrop: (e: React.DragEvent) => void
+   386→  onDragOver: (e: React.DragEvent) => void
+   387→  onDragLeave: () => void
+   388→  dragOver: boolean
+   389→  fileInputRef: React.RefObject<HTMLInputElement>
+   390→  acceptTypes: string
+   391→  currentFile?: File | null
+   392→}) {
+   393→  return (
+   394→    <div
+   395→      onDrop={onDrop}
+   396→      onDragOver={onDragOver}
+   397→      onDragLeave={onDragLeave}
+   398→      className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer
+   399→        ${dragOver ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'}`}
+   400→      onClick={() => fileInputRef.current?.click()}
+   401→    >
+   402→      <input
+   403→        ref={fileInputRef}
+   404→        type="file"
+   405→        accept={acceptTypes}
+   406→        className="hidden"
+   407→        onChange={(e) => {
+   408→          const file = e.target.files?.[0]
+   409→          if (file) onFileSelect(file)
+   410→        }}
+   411→      />
+   412→      <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+   413→      <p className="text-lg font-medium mb-1">
+   414→        {currentFile ? currentFile.name : 'Перетащите файл сюда или нажмите для выбора'}
+   415→      </p>
+   416→      <p className="text-sm text-muted-foreground">
+   417→        Поддерживаются GIF, PNG, JPG, MP4, WebM
+   418→      </p>
+   419→    </div>
+   420→  )
+   421→}
+   422→
+   423→// ==================== STANDARD TOOL VIEW ====================
+   424→function StandardToolView({
+   425→  tool,
+   426→  file,
+   427→  previewUrl,
+   428→  uploadMeta,
+   429→  processing,
+   430→  outputUrl,
+   431→  outputSize,
+   432→  showOriginal,
+   433→  onShowOriginalChange,
+   434→  onFileSelect,
+   435→  onDrop,
+   436→  onDragOver,
+   437→  onDragLeave,
+   438→  dragOver,
+   439→  fileInputRef,
+   440→  acceptTypes,
+   441→  onProcess,
+   442→  onDownload,
+   443→  onBack,
+   444→}: {
+   445→  tool: ToolConfig
+   446→  file: File | null
+   447→  previewUrl: string | null
+   448→  uploadMeta: any
+   449→  processing: boolean
+   450→  outputUrl: string | null
+   451→  outputSize: number
+   452→  showOriginal: boolean
+   453→  onShowOriginalChange: (v: boolean) => void
+   454→  onFileSelect: (file: File) => void
+   455→  onDrop: (e: React.DragEvent) => void
+   456→  onDragOver: (e: React.DragEvent) => void
+   457→  onDragLeave: () => void
+   458→  dragOver: boolean
+   459→  fileInputRef: React.RefObject<HTMLInputElement>
+   460→  acceptTypes: string
+   461→  onProcess: (endpoint: string, body: any) => void
+   462→  onDownload: () => void
+   463→  onBack: () => void
+   464→}) {
+   465→  const [resizeWidth, setResizeWidth] = useState(200)
+   466→  const [resizeHeight, setResizeHeight] = useState(0)
+   467→  const [maintainAspect, setMaintainAspect] = useState(true)
+   468→  const [cropX, setCropX] = useState(0)
+   469→  const [cropY, setCropY] = useState(0)
+   470→  const [cropW, setCropW] = useState(200)
+   471→  const [cropH, setCropH] = useState(200)
+   472→  const [rotateAngle, setRotateAngle] = useState(90)
+   473→  const [effect, setEffect] = useState('grayscale')
+   474→  const [speedMultiplier, setSpeedMultiplier] = useState(2)
+   475→  const [optimizeColors, setOptimizeColors] = useState(128)
+   476→  const [cutStart, setCutStart] = useState(0)
+   477→  const [cutEnd, setCutEnd] = useState(0)
+   478→  const [addText, setAddTextText] = useState('')
+   479→  const [addTextFontSize, setAddTextFontSize] = useState(32)
+   480→  const [addTextColor, setAddTextColor] = useState('#ffffff')
+   481→  const [addTextX, setAddTextX] = useState(10)
+   482→  const [addTextY, setAddTextY] = useState(30)
+   483→  const [addTextStroke, setAddTextStroke] = useState('#000000')
+   484→
+   485→  const handleProcess = () => {
+   486→    if (!uploadMeta?.inputPath) return
+   487→
+   488→    switch (tool.id) {
+   489→      case 'resize':
+   490→        onProcess('resize', {
+   491→          inputPath: uploadMeta.inputPath,
+   492→          width: resizeWidth,
+   493→          height: resizeHeight || undefined,
+   494→          maintainAspect,
+   495→        })
+   496→        break
+   497→      case 'crop':
+   498→        onProcess('crop', {
+   499→          inputPath: uploadMeta.inputPath,
+   500→          x: cropX, y: cropY,
+   501→          width: cropW, height: cropH,
+   502→        })
+   503→        break
+   504→      case 'rotate':
+   505→        onProcess('rotate', {
+   506→          inputPath: uploadMeta.inputPath,
+   507→          angle: rotateAngle,
+   508→        })
+   509→        break
+   510→      case 'effects':
+   511→        onProcess('effects', {
+   512→          inputPath: uploadMeta.inputPath,
+   513→          effect,
+   514→        })
+   515→        break
+   516→      case 'speed':
+   517→        onProcess('speed', {
+   518→          inputPath: uploadMeta.inputPath,
+   519→          speedMultiplier,
+   520→        })
+   521→        break
+   522→      case 'reverse':
+   523→        onProcess('reverse', {
+   524→          inputPath: uploadMeta.inputPath,
+   525→        })
+   526→        break
+   527→      case 'optimize':
+   528→        onProcess('optimize', {
+   529→          inputPath: uploadMeta.inputPath,
+   530→          colors: optimizeColors,
+   531→        })
+   532→        break
+   533→      case 'cut':
+   534→        onProcess('cut', {
+   535→          inputPath: uploadMeta.inputPath,
+   536→          startFrame: cutStart,
+   537→          endFrame: cutEnd,
+   538→        })
+   539→        break
+   540→      case 'add-text':
+   541→        onProcess('add-text', {
+   542→          inputPath: uploadMeta.inputPath,
+   543→          text: addText,
+   544→          fontSize: addTextFontSize,
+   545→          fontColor: addTextColor,
+   546→          positionX: addTextX,
+   547→          positionY: addTextY,
+   548→          strokeColor: addTextStroke,
+   549→          strokeWidth: 2,
+   550→        })
+   551→        break
+   552→    }
+   553→  }
+   554→
+   555→  // Initialize cut end to last frame
+   556→  if (tool.id === 'cut' && uploadMeta && cutEnd === 0) {
+   557→    setCutEnd(uploadMeta.pages - 1)
+   558→  }
+   559→
+   560→  // Initialize crop/resize dimensions from upload metadata
+   561→  if (uploadMeta && resizeWidth === 200 && uploadMeta.width) {
+   562→    setResizeWidth(uploadMeta.width)
+   563→    setResizeHeight(uploadMeta.height)
+   564→    setCropW(uploadMeta.width)
+   565→    setCropH(uploadMeta.height)
+   566→  }
+   567→
+   568→  return (
+   569→    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+   570→      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+   571→        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+   572→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+   573→            <ArrowLeft className="h-4 w-4" /> Назад
+   574→          </Button>
+   575→          <Separator orientation="vertical" className="h-6" />
+   576→          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${toolColors[tool.id]} flex items-center justify-center text-white`}>
+   577→            {toolIcons[tool.id]}
+   578→          </div>
+   579→          <h1 className="text-lg font-semibold">{tool.name}</h1>
+   580→        </div>
+   581→      </header>
+   582→
+   583→      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+   584→        {!file ? (
+   585→          <UploadArea
+   586→            onFileSelect={onFileSelect}
+   587→            onDrop={onDrop}
+   588→            onDragOver={onDragOver}
+   589→            onDragLeave={onDragLeave}
+   590→            dragOver={dragOver}
+   591→            fileInputRef={fileInputRef}
+   592→            acceptTypes={acceptTypes}
+   593→          />
+   594→        ) : (
+   595→          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   596→            {/* Left: Options */}
+   597→            <div className="lg:col-span-1 space-y-4">
+   598→              <Card>
+   599→                <CardHeader className="pb-3">
+   600→                  <CardTitle className="text-base">Исходный файл</CardTitle>
+   601→                </CardHeader>
+   602→                <CardContent className="space-y-2 text-sm">
+   603→                  <div className="flex justify-between">
+   604→                    <span className="text-muted-foreground">Файл:</span>
+   605→                    <span className="font-medium truncate ml-2">{file.name}</span>
+   606→                  </div>
+   607→                  {uploadMeta && (
+   608→                    <>
+   609→                      <div className="flex justify-between">
+   610→                        <span className="text-muted-foreground">Размер:</span>
+   611→                        <span className="font-medium">{uploadMeta.width}×{uploadMeta.height}px</span>
+   612→                      </div>
+   613→                      <div className="flex justify-between">
+   614→                        <span className="text-muted-foreground">Кадры:</span>
+   615→                        <span className="font-medium">{uploadMeta.pages}</span>
+   616→                      </div>
+   617→                      <div className="flex justify-between">
+   618→                        <span className="text-muted-foreground">Объём:</span>
+   619→                        <span className="font-medium">{formatFileSize(uploadMeta.inputSize)}</span>
+   620→                      </div>
+   621→                    </>
+   622→                  )}
+   623→                </CardContent>
+   624→              </Card>
+   625→
+   626→              <Card>
+   627→                <CardHeader className="pb-3">
+   628→                  <CardTitle className="text-base">Настройки</CardTitle>
+   629→                </CardHeader>
+   630→                <CardContent className="space-y-4">
+   631→                  {/* RESIZE OPTIONS */}
+   632→                  {tool.id === 'resize' && (
+   633→                    <>
+   634→                      <div className="space-y-2">
+   635→                        <Label>Ширина (px)</Label>
+   636→                        <Input type="number" value={resizeWidth} onChange={e => setResizeWidth(Number(e.target.value))} min={1} max={5000} />
+   637→                      </div>
+   638→                      <div className="space-y-2">
+   639→                        <Label>Высота (px)</Label>
+   640→                        <Input type="number" value={resizeHeight} onChange={e => setResizeHeight(Number(e.target.value))} min={1} max={5000} />
+   641→                      </div>
+   642→                      <div className="flex items-center gap-2">
+   643→                        <Switch checked={maintainAspect} onCheckedChange={setMaintainAspect} />
+   644→                        <Label>Сохранить пропорции</Label>
+   645→                      </div>
+   646→                      <div className="grid grid-cols-3 gap-2">
+   647→                        {[50, 75, 125, 150, 200].map(pct => (
+   648→                          <Button key={pct} variant="outline" size="sm" onClick={() => {
+   649→                            if (uploadMeta) {
+   650→                              setResizeWidth(Math.round(uploadMeta.width * pct / 100))
+   651→                              setResizeHeight(Math.round(uploadMeta.height * pct / 100))
+   652→                            }
+   653→                          }}>
+   654→                            {pct}%
+   655→                          </Button>
+   656→                        ))}
+   657→                      </div>
+   658→                    </>
+   659→                  )}
+   660→
+   661→                  {/* CROP OPTIONS */}
+   662→                  {tool.id === 'crop' && (
+   663→                    <>
+   664→                      <div className="grid grid-cols-2 gap-3">
+   665→                        <div className="space-y-2">
+   666→                          <Label>X (px)</Label>
+   667→                          <Input type="number" value={cropX} onChange={e => setCropX(Number(e.target.value))} min={0} />
+   668→                        </div>
+   669→                        <div className="space-y-2">
+   670→                          <Label>Y (px)</Label>
+   671→                          <Input type="number" value={cropY} onChange={e => setCropY(Number(e.target.value))} min={0} />
+   672→                        </div>
+   673→                        <div className="space-y-2">
+   674→                          <Label>Ширина (px)</Label>
+   675→                          <Input type="number" value={cropW} onChange={e => setCropW(Number(e.target.value))} min={1} />
+   676→                        </div>
+   677→                        <div className="space-y-2">
+   678→                          <Label>Высота (px)</Label>
+   679→                          <Input type="number" value={cropH} onChange={e => setCropH(Number(e.target.value))} min={1} />
+   680→                        </div>
+   681→                      </div>
+   682→                      <p className="text-xs text-muted-foreground">Укажите координаты и размер области обрезки</p>
+   683→                    </>
+   684→                  )}
+   685→
+   686→                  {/* ROTATE OPTIONS */}
+   687→                  {tool.id === 'rotate' && (
+   688→                    <div className="space-y-3">
+   689→                      <Label>Угол поворота</Label>
+   690→                      <div className="grid grid-cols-4 gap-2">
+   691→                        {[90, 180, 270].map(angle => (
+   692→                          <Button
+   693→                            key={angle}
+   694→                            variant={rotateAngle === angle ? 'default' : 'outline'}
+   695→                            size="sm"
+   696→                            onClick={() => setRotateAngle(angle)}
+   697→                          >
+   698→                            {angle}°
+   699→                          </Button>
+   700→                        ))}
+   701→                      </div>
+   702→                      <div className="space-y-2">
+   703→                        <Label>Произвольный угол</Label>
+   704→                        <Input
+   705→                          type="number"
+   706→                          value={rotateAngle}
+   707→                          onChange={e => setRotateAngle(Number(e.target.value))}
+   708→                          min={0}
+   709→                          max={360}
+   710→                        />
+   711→                      </div>
+   712→                    </div>
+   713→                  )}
+   714→
+   715→                  {/* EFFECTS OPTIONS */}
+   716→                  {tool.id === 'effects' && (
+   717→                    <div className="space-y-3">
+   718→                      <Label>Выберите эффект</Label>
+   719→                      <div className="grid grid-cols-2 gap-2">
+   720→                        {[
+   721→                          { id: 'grayscale', label: 'Ч/Б' },
+   722→                          { id: 'sepia', label: 'Сепия' },
+   723→                          { id: 'blur', label: 'Размытие' },
+   724→                          { id: 'sharpen', label: 'Резкость' },
+   725→                          { id: 'negate', label: 'Негатив' },
+   726→                          { id: 'normalize', label: 'Нормализация' },
+   727→                          { id: 'brightness', label: 'Яркость +' },
+   728→                          { id: 'darken', label: 'Темнее' },
+   729→                          { id: 'saturate', label: 'Насыщеннее' },
+   730→                          { id: 'desaturate', label: 'Блеклее' },
+   731→                          { id: 'contrast', label: 'Контраст' },
+   732→                          { id: 'vintage', label: 'Винтаж' },
+   733→                          { id: 'cool', label: 'Холодный' },
+   734→                          { id: 'warm', label: 'Тёплый' },
+   735→                        ].map(eff => (
+   736→                          <Button
+   737→                            key={eff.id}
+   738→                            variant={effect === eff.id ? 'default' : 'outline'}
+   739→                            size="sm"
+   740→                            onClick={() => setEffect(eff.id)}
+   741→                          >
+   742→                            {eff.label}
+   743→                          </Button>
+   744→                        ))}
+   745→                      </div>
+   746→                    </div>
+   747→                  )}
+   748→
+   749→                  {/* SPEED OPTIONS */}
+   750→                  {tool.id === 'speed' && (
+   751→                    <div className="space-y-4">
+   752→                      <div className="space-y-2">
+   753→                        <div className="flex justify-between">
+   754→                          <Label>Множитель скорости</Label>
+   755→                          <span className="text-sm font-medium">{speedMultiplier}x</span>
+   756→                        </div>
+   757→                        <Slider
+   758→                          value={[speedMultiplier]}
+   759→                          onValueChange={([v]) => setSpeedMultiplier(v)}
+   760→                          min={0.25}
+   761→                          max={5}
+   762→                          step={0.25}
+   763→                        />
+   764→                      </div>
+   765→                      <div className="grid grid-cols-4 gap-2">
+   766→                        {[0.5, 1.5, 2, 3].map(sp => (
+   767→                          <Button
+   768→                            key={sp}
+   769→                            variant={speedMultiplier === sp ? 'default' : 'outline'}
+   770→                            size="sm"
+   771→                            onClick={() => setSpeedMultiplier(sp)}
+   772→                          >
+   773→                            {sp}x
+   774→                          </Button>
+   775→                        ))}
+   776→                      </div>
+   777→                      <p className="text-xs text-muted-foreground">
+   778→                        {speedMultiplier > 1 ? 'Ускорение' : speedMultiplier < 1 ? 'Замедление' : 'Без изменения'} анимации
+   779→                      </p>
+   780→                    </div>
+   781→                  )}
+   782→
+   783→                  {/* REVERSE - no options needed */}
+   784→                  {tool.id === 'reverse' && (
+   785→                    <p className="text-sm text-muted-foreground">
+   786→                      Реверс воспроизведёт GIF-анимацию в обратном порядке. 
+   787→                      Первый кадр станет последним, а последний — первым.
+   788→                    </p>
+   789→                  )}
+   790→
+   791→                  {/* OPTIMIZE OPTIONS */}
+   792→                  {tool.id === 'optimize' && (
+   793→                    <div className="space-y-4">
+   794→                      <div className="space-y-2">
+   795→                        <div className="flex justify-between">
+   796→                          <Label>Количество цветов</Label>
+   797→                          <span className="text-sm font-medium">{optimizeColors}</span>
+   798→                        </div>
+   799→                        <Slider
+   800→                          value={[optimizeColors]}
+   801→                          onValueChange={([v]) => setOptimizeColors(v)}
+   802→                          min={8}
+   803→                          max={256}
+   804→                          step={8}
+   805→                        />
+   806→                      </div>
+   807→                      <div className="grid grid-cols-3 gap-2">
+   808→                        {[32, 64, 128, 192, 256].map(c => (
+   809→                          <Button
+   810→                            key={c}
+   811→                            variant={optimizeColors === c ? 'default' : 'outline'}
+   812→                            size="sm"
+   813→                            onClick={() => setOptimizeColors(c)}
+   814→                          >
+   815→                            {c}
+   816→                          </Button>
+   817→                        ))}
+   818→                      </div>
+   819→                      <p className="text-xs text-muted-foreground">
+   820→                        Меньше цветов = меньше размер файла, но хуже качество
+   821→                      </p>
+   822→                    </div>
+   823→                  )}
+   824→
+   825→                  {/* CUT OPTIONS */}
+   826→                  {tool.id === 'cut' && (
+   827→                    <div className="space-y-4">
+   828→                      <div className="space-y-2">
+   829→                        <div className="flex justify-between">
+   830→                          <Label>Начальный кадр</Label>
+   831→                          <span className="text-sm font-medium">{cutStart}</span>
+   832→                        </div>
+   833→                        <Slider
+   834→                          value={[cutStart]}
+   835→                          onValueChange={([v]) => setCutStart(v)}
+   836→                          min={0}
+   837→                          max={uploadMeta?.pages - 1 || 50}
+   838→                          step={1}
+   839→                        />
+   840→                      </div>
+   841→                      <div className="space-y-2">
+   842→                        <div className="flex justify-between">
+   843→                          <Label>Конечный кадр</Label>
+   844→                          <span className="text-sm font-medium">{cutEnd}</span>
+   845→                        </div>
+   846→                        <Slider
+   847→                          value={[cutEnd]}
+   848→                          onValueChange={([v]) => setCutEnd(v)}
+   849→                          min={0}
+   850→                          max={uploadMeta?.pages - 1 || 50}
+   851→                          step={1}
+   852→                        />
+   853→                      </div>
+   854→                      <p className="text-xs text-muted-foreground">
+   855→                        Выберите диапазон кадров для сохранения ({cutEnd - cutStart + 1} кадров)
+   856→                      </p>
+   857→                    </div>
+   858→                  )}
+   859→
+   860→                  {/* ADD TEXT OPTIONS */}
+   861→                  {tool.id === 'add-text' && (
+   862→                    <div className="space-y-4">
+   863→                      <div className="space-y-2">
+   864→                        <Label>Текст</Label>
+   865→                        <Input
+   866→                          value={addText}
+   867→                          onChange={e => setAddTextText(e.target.value)}
+   868→                          placeholder="Введите текст..."
+   869→                        />
+   870→                      </div>
+   871→                      <div className="space-y-2">
+   872→                        <Label>Размер шрифта</Label>
+   873→                        <Input type="number" value={addTextFontSize} onChange={e => setAddTextFontSize(Number(e.target.value))} min={8} max={200} />
+   874→                      </div>
+   875→                      <div className="grid grid-cols-2 gap-3">
+   876→                        <div className="space-y-2">
+   877→                          <Label>Цвет текста</Label>
+   878→                          <div className="flex gap-2">
+   879→                            <input type="color" value={addTextColor} onChange={e => setAddTextColor(e.target.value)} className="w-10 h-10 rounded border cursor-pointer" />
+   880→                            <Input value={addTextColor} onChange={e => setAddTextColor(e.target.value)} className="flex-1" />
+   881→                          </div>
+   882→                        </div>
+   883→                        <div className="space-y-2">
+   884→                          <Label>Обводка</Label>
+   885→                          <div className="flex gap-2">
+   886→                            <input type="color" value={addTextStroke} onChange={e => setAddTextStroke(e.target.value)} className="w-10 h-10 rounded border cursor-pointer" />
+   887→                            <Input value={addTextStroke} onChange={e => setAddTextStroke(e.target.value)} className="flex-1" />
+   888→                          </div>
+   889→                        </div>
+   890→                      </div>
+   891→                      <div className="grid grid-cols-2 gap-3">
+   892→                        <div className="space-y-2">
+   893→                          <Label>Позиция X</Label>
+   894→                          <Input type="number" value={addTextX} onChange={e => setAddTextX(Number(e.target.value))} min={0} />
+   895→                        </div>
+   896→                        <div className="space-y-2">
+   897→                          <Label>Позиция Y</Label>
+   898→                          <Input type="number" value={addTextY} onChange={e => setAddTextY(Number(e.target.value))} min={0} />
+   899→                        </div>
+   900→                      </div>
+   901→                    </div>
+   902→                  )}
+   903→
+   904→                  <Button
+   905→                    className="w-full mt-2"
+   906→                    onClick={handleProcess}
+   907→                    disabled={processing || (tool.id === 'add-text' && !addText)}
+   908→                  >
+   909→                    {processing ? (
+   910→                      <>
+   911→                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   912→                        Обработка...
+   913→                      </>
+   914→                    ) : (
+   915→                      'Применить'
+   916→                    )}
+   917→                  </Button>
+   918→                </CardContent>
+   919→              </Card>
+   920→            </div>
+   921→
+   922→            {/* Right: Preview */}
+   923→            <div className="lg:col-span-2 space-y-4">
+   924→              <Card>
+   925→                <CardHeader className="pb-3">
+   926→                  <div className="flex items-center justify-between">
+   927→                    <CardTitle className="text-base">
+   928→                      {showOriginal && outputUrl ? 'Оригинал' : outputUrl ? 'Результат' : 'Предпросмотр'}
+   929→                    </CardTitle>
+   930→                    {outputUrl && (
+   931→                      <div className="flex gap-1">
+   932→                        <Button
+   933→                          variant={showOriginal ? 'default' : 'outline'}
+   934→                          size="sm"
+   935→                          onClick={() => onShowOriginalChange(true)}
+   936→                        >
+   937→                          Оригинал
+   938→                        </Button>
+   939→                        <Button
+   940→                          variant={!showOriginal ? 'default' : 'outline'}
+   941→                          size="sm"
+   942→                          onClick={() => onShowOriginalChange(false)}
+   943→                        >
+   944→                          Результат
+   945→                        </Button>
+   946→                      </div>
+   947→                    )}
+   948→                  </div>
+   949→                </CardHeader>
+   950→                <CardContent>
+   951→                  <div className="bg-muted/30 rounded-lg p-4 flex items-center justify-center min-h-[300px]">
+   952→                    {previewUrl && !outputUrl && (
+   953→                      <img
+   954→                        src={previewUrl}
+   955→                        alt="Исходный GIF"
+   956→                        className="max-w-full max-h-[500px] rounded-lg shadow-sm"
+   957→                      />
+   958→                    )}
+   959→                    {outputUrl && showOriginal && previewUrl && (
+   960→                      <img
+   961→                        src={previewUrl}
+   962→                        alt="Оригинал"
+   963→                        className="max-w-full max-h-[500px] rounded-lg shadow-sm"
+   964→                      />
+   965→                    )}
+   966→                    {outputUrl && !showOriginal && (
+   967→                      <img
+   968→                        src={outputUrl}
+   969→                        alt="Результат"
+   970→                        className="max-w-full max-h-[500px] rounded-lg shadow-sm"
+   971→                      />
+   972→                    )}
+   973→                    {!previewUrl && (
+   974→                      <p className="text-muted-foreground">Загрузите GIF-файл</p>
+   975→                    )}
+   976→                  </div>
+   977→                </CardContent>
+   978→              </Card>
+   979→
+   980→              {outputUrl && (
+   981→                <Card className="border-primary/30">
+   982→                  <CardHeader className="pb-3">
+   983→                    <div className="flex items-center justify-between">
+   984→                      <CardTitle className="text-base">Результат</CardTitle>
+   985→                      <Badge variant="secondary">
+   986→                        {formatFileSize(outputSize)}
+   987→                      </Badge>
+   988→                    </div>
+   989→                  </CardHeader>
+   990→                  <CardContent className="space-y-3">
+   991→                    {uploadMeta && (
+   992→                      <div className="flex items-center gap-4 text-sm">
+   993→                        <span className="text-muted-foreground">Исходный: {formatFileSize(uploadMeta.inputSize)}</span>
+   994→                        <span>→</span>
+   995→                        <span className="font-medium">Результат: {formatFileSize(outputSize)}</span>
+   996→                        {outputSize < uploadMeta.inputSize && (
+   997→                          <Badge variant="secondary" className="bg-green-100 text-green-700">
+   998→                            -{Math.round((1 - outputSize / uploadMeta.inputSize) * 100)}%
+   999→                          </Badge>
+  1000→                        )}
+  1001→                      </div>
+  1002→                    )}
+  1003→                    <Button onClick={onDownload} className="w-full gap-2">
+  1004→                      <Download className="h-4 w-4" />
+  1005→                      Скачать результат
+  1006→                    </Button>
+  1007→                  </CardContent>
+  1008→                </Card>
+  1009→              )}
+  1010→            </div>
+  1011→          </div>
+  1012→        )}
+  1013→      </main>
+  1014→    </div>
+  1015→  )
+  1016→}
+  1017→
+  1018→// ==================== MAKE GIF VIEW ====================
+  1019→function MakeGifView({
+  1020→  files,
+  1021→  previews,
+  1022→  inputRef,
+  1023→  setFiles,
+  1024→  setPreviews,
+  1025→  processing,
+  1026→  outputUrl,
+  1027→  outputSize,
+  1028→  onProcess,
+  1029→  onDownload,
+  1030→  onBack,
+  1031→}: {
+  1032→  files: File[]
+  1033→  previews: string[]
+  1034→  inputRef: React.RefObject<HTMLInputElement>
+  1035→  setFiles: React.Dispatch<React.SetStateAction<File[]>>
+  1036→  setPreviews: React.Dispatch<React.SetStateAction<string[]>>
+  1037→  processing: boolean
+  1038→  outputUrl: string | null
+  1039→  outputSize: number
+  1040→  onProcess: (endpoint: string, formData: FormData) => void
+  1041→  onDownload: () => void
+  1042→  onBack: () => void
+  1043→}) {
+  1044→  const [delay, setDelay] = useState(200)
+  1045→
+  1046→  const handleAddFiles = (newFiles: FileList) => {
+  1047→    const arr = Array.from(newFiles)
+  1048→    const newPreviews = arr.map(f => URL.createObjectURL(f))
+  1049→    setFiles(prev => [...prev, ...arr])
+  1050→    setPreviews(prev => [...prev, ...newPreviews])
+  1051→  }
+  1052→
+  1053→  const removeFile = (index: number) => {
+  1054→    setFiles(prev => prev.filter((_, i) => i !== index))
+  1055→    setPreviews(prev => prev.filter((_, i) => i !== index))
+  1056→  }
+  1057→
+  1058→  const moveFile = (from: number, to: number) => {
+  1059→    setFiles(prev => {
+  1060→      const next = [...prev]
+  1061→      const [moved] = next.splice(from, 1)
+  1062→      next.splice(to, 0, moved)
+  1063→      return next
+  1064→    })
+  1065→    setPreviews(prev => {
+  1066→      const next = [...prev]
+  1067→      const [moved] = next.splice(from, 1)
+  1068→      next.splice(to, 0, moved)
+  1069→      return next
+  1070→    })
+  1071→  }
+  1072→
+  1073→  const handleCreate = () => {
+  1074→    const formData = new FormData()
+  1075→    files.forEach(f => formData.append('files', f))
+  1076→    formData.append('delay', String(delay))
+  1077→    onProcess('make-gif', formData)
+  1078→  }
+  1079→
+  1080→  return (
+  1081→    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+  1082→      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+  1083→        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+  1084→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+  1085→            <ArrowLeft className="h-4 w-4" /> Назад
+  1086→          </Button>
+  1087→          <Separator orientation="vertical" className="h-6" />
+  1088→          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white">
+  1089→            <ImageIcon className="h-4 w-4" />
+  1090→          </div>
+  1091→          <h1 className="text-lg font-semibold">GIF Maker</h1>
+  1092→        </div>
+  1093→      </header>
+  1094→
+  1095→      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+  1096→        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  1097→          <div className="lg:col-span-1 space-y-4">
+  1098→            <Card>
+  1099→              <CardHeader className="pb-3">
+  1100→                <CardTitle className="text-base">Настройки</CardTitle>
+  1101→              </CardHeader>
+  1102→              <CardContent className="space-y-4">
+  1103→                <div className="space-y-2">
+  1104→                  <div className="flex justify-between">
+  1105→                    <Label>Задержка между кадрами (мс)</Label>
+  1106→                    <span className="text-sm font-medium">{delay}мс</span>
+  1107→                  </div>
+  1108→                  <Slider
+  1109→                    value={[delay]}
+  1110→                    onValueChange={([v]) => setDelay(v)}
+  1111→                    min={20}
+  1112→                    max={2000}
+  1113→                    step={10}
+  1114→                  />
+  1115→                </div>
+  1116→
+  1117→                <Button
+  1118→                  variant="outline"
+  1119→                  className="w-full"
+  1120→                  onClick={() => inputRef.current?.click()}
+  1121→                >
+  1122→                  <Upload className="mr-2 h-4 w-4" />
+  1123→                  Добавить изображения
+  1124→                </Button>
+  1125→                <input
+  1126→                  ref={inputRef}
+  1127→                  type="file"
+  1128→                  accept="image/*"
+  1129→                  multiple
+  1130→                  className="hidden"
+  1131→                  onChange={e => {
+  1132→                    if (e.target.files) handleAddFiles(e.target.files)
+  1133→                  }}
+  1134→                />
+  1135→
+  1136→                <Button
+  1137→                  className="w-full"
+  1138→                  onClick={handleCreate}
+  1139→                  disabled={processing || files.length < 2}
+  1140→                >
+  1141→                  {processing ? (
+  1142→                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Создание...</>
+  1143→                  ) : (
+  1144→                    'Создать GIF'
+  1145→                  )}
+  1146→                </Button>
+  1147→                {files.length < 2 && (
+  1148→                  <p className="text-xs text-muted-foreground text-center">Добавьте минимум 2 изображения</p>
+  1149→                )}
+  1150→              </CardContent>
+  1151→            </Card>
+  1152→
+  1153→            {/* File list */}
+  1154→            {files.length > 0 && (
+  1155→              <Card>
+  1156→                <CardHeader className="pb-3">
+  1157→                  <CardTitle className="text-base">Кадры ({files.length})</CardTitle>
+  1158→                </CardHeader>
+  1159→                <CardContent className="max-h-96 overflow-y-auto space-y-2">
+  1160→                  {files.map((file, index) => (
+  1161→                    <div key={index} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
+  1162→                      <img src={previews[index]} alt="" className="w-10 h-10 object-cover rounded" />
+  1163→                      <span className="text-sm truncate flex-1">{file.name}</span>
+  1164→                      <div className="flex gap-1">
+  1165→                        {index > 0 && (
+  1166→                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => moveFile(index, index - 1)}>←</Button>
+  1167→                        )}
+  1168→                        {index < files.length - 1 && (
+  1169→                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => moveFile(index, index + 1)}>→</Button>
+  1170→                        )}
+  1171→                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => removeFile(index)}>✕</Button>
+  1172→                      </div>
+  1173→                    </div>
+  1174→                  ))}
+  1175→                </CardContent>
+  1176→              </Card>
+  1177→            )}
+  1178→          </div>
+  1179→
+  1180→          <div className="lg:col-span-2 space-y-4">
+  1181→            {outputUrl ? (
+  1182→              <Card>
+  1183→                <CardHeader className="pb-3">
+  1184→                  <div className="flex items-center justify-between">
+  1185→                    <CardTitle className="text-base">Результат</CardTitle>
+  1186→                    <Badge variant="secondary">{formatFileSize(outputSize)}</Badge>
+  1187→                  </div>
+  1188→                </CardHeader>
+  1189→                <CardContent className="space-y-3">
+  1190→                  <div className="bg-muted/30 rounded-lg p-4 flex items-center justify-center">
+  1191→                    <img src={outputUrl} alt="Созданный GIF" className="max-w-full max-h-[500px] rounded-lg" />
+  1192→                  </div>
+  1193→                  <Button onClick={onDownload} className="w-full gap-2">
+  1194→                    <Download className="h-4 w-4" />
+  1195→                    Скачать GIF
+  1196→                  </Button>
+  1197→                </CardContent>
+  1198→              </Card>
+  1199→            ) : (
+  1200→              <Card>
+  1201→                <CardContent className="py-12 text-center">
+  1202→                  <ImageIcon className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
+  1203→                  <p className="text-muted-foreground">
+  1204→                    Добавьте изображения и нажмите «Создать GIF»
+  1205→                  </p>
+  1206→                </CardContent>
+  1207→              </Card>
+  1208→            )}
+  1209→          </div>
+  1210→        </div>
+  1211→      </main>
+  1212→    </div>
+  1213→  )
+  1214→}
+  1215→
+  1216→// ==================== VIDEO TO GIF VIEW ====================
+  1217→function VideoToGifView({
+  1218→  processing,
+  1219→  outputUrl,
+  1220→  outputSize,
+  1221→  onProcess,
+  1222→  onDownload,
+  1223→  onBack,
+  1224→}: {
+  1225→  processing: boolean
+  1226→  outputUrl: string | null
+  1227→  outputSize: number
+  1228→  onProcess: (endpoint: string, formData: FormData) => void
+  1229→  onDownload: () => void
+  1230→  onBack: () => void
+  1231→}) {
+  1232→  const [videoFile, setVideoFile] = useState<File | null>(null)
+  1233→  const [startTime, setStartTime] = useState('0')
+  1234→  const [duration, setDuration] = useState('5')
+  1235→  const [fps, setFps] = useState(10)
+  1236→  const [width, setWidth] = useState(480)
+  1237→  const videoInputRef = useRef<HTMLInputElement>(null)
+  1238→
+  1239→  const handleConvert = () => {
+  1240→    if (!videoFile) return
+  1241→    const formData = new FormData()
+  1242→    formData.append('file', videoFile)
+  1243→    formData.append('startTime', startTime)
+  1244→    formData.append('duration', duration)
+  1245→    formData.append('fps', String(fps))
+  1246→    formData.append('width', String(width))
+  1247→    onProcess('video-to-gif', formData)
+  1248→  }
+  1249→
+  1250→  return (
+  1251→    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+  1252→      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+  1253→        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+  1254→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+  1255→            <ArrowLeft className="h-4 w-4" /> Назад
+  1256→          </Button>
+  1257→          <Separator orientation="vertical" className="h-6" />
+  1258→          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white">
+  1259→            <Film className="h-4 w-4" />
+  1260→          </div>
+  1261→          <h1 className="text-lg font-semibold">Video → GIF</h1>
+  1262→        </div>
+  1263→      </header>
+  1264→
+  1265→      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+  1266→        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  1267→          <div className="lg:col-span-1 space-y-4">
+  1268→            <Card>
+  1269→              <CardHeader className="pb-3">
+  1270→                <CardTitle className="text-base">Загрузить видео</CardTitle>
+  1271→              </CardHeader>
+  1272→              <CardContent className="space-y-4">
+  1273→                <div
+  1274→                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+  1275→                  onClick={() => videoInputRef.current?.click()}
+  1276→                >
+  1277→                  <Film className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+  1278→                  <p className="text-sm">{videoFile ? videoFile.name : 'Выберите видео файл'}</p>
+  1279→                </div>
+  1280→                <input
+  1281→                  ref={videoInputRef}
+  1282→                  type="file"
+  1283→                  accept="video/*"
+  1284→                  className="hidden"
+  1285→                  onChange={e => {
+  1286→                    const f = e.target.files?.[0]
+  1287→                    if (f) setVideoFile(f)
+  1288→                  }}
+  1289→                />
+  1290→              </CardContent>
+  1291→            </Card>
+  1292→
+  1293→            <Card>
+  1294→              <CardHeader className="pb-3">
+  1295→                <CardTitle className="text-base">Настройки</CardTitle>
+  1296→              </CardHeader>
+  1297→              <CardContent className="space-y-4">
+  1298→                <div className="grid grid-cols-2 gap-3">
+  1299→                  <div className="space-y-2">
+  1300→                    <Label>Начало (сек)</Label>
+  1301→                    <Input type="number" value={startTime} onChange={e => setStartTime(e.target.value)} min={0} step={0.1} />
+  1302→                  </div>
+  1303→                  <div className="space-y-2">
+  1304→                    <Label>Длительность (сек)</Label>
+  1305→                    <Input type="number" value={duration} onChange={e => setDuration(e.target.value)} min={0.5} max={30} step={0.5} />
+  1306→                  </div>
+  1307→                </div>
+  1308→                <div className="space-y-2">
+  1309→                  <Label>FPS (кадров/сек)</Label>
+  1310→                  <Select value={String(fps)} onValueChange={v => setFps(Number(v))}>
+  1311→                    <SelectTrigger>
+  1312→                      <SelectValue />
+  1313→                    </SelectTrigger>
+  1314→                    <SelectContent>
+  1315→                      <SelectItem value="5">5 fps</SelectItem>
+  1316→                      <SelectItem value="8">8 fps</SelectItem>
+  1317→                      <SelectItem value="10">10 fps</SelectItem>
+  1318→                      <SelectItem value="12">12 fps</SelectItem>
+  1319→                      <SelectItem value="15">15 fps</SelectItem>
+  1320→                      <SelectItem value="20">20 fps</SelectItem>
+  1321→                      <SelectItem value="24">24 fps</SelectItem>
+  1322→                    </SelectContent>
+  1323→                  </Select>
+  1324→                </div>
+  1325→                <div className="space-y-2">
+  1326→                  <Label>Ширина (px)</Label>
+  1327→                  <Select value={String(width)} onValueChange={v => setWidth(Number(v))}>
+  1328→                    <SelectTrigger>
+  1329→                      <SelectValue />
+  1330→                    </SelectTrigger>
+  1331→                    <SelectContent>
+  1332→                      <SelectItem value="320">320px</SelectItem>
+  1333→                      <SelectItem value="480">480px</SelectItem>
+  1334→                      <SelectItem value="640">640px</SelectItem>
+  1335→                      <SelectItem value="800">800px</SelectItem>
+  1336→                    </SelectContent>
+  1337→                  </Select>
+  1338→                </div>
+  1339→                <Button
+  1340→                  className="w-full"
+  1341→                  onClick={handleConvert}
+  1342→                  disabled={processing || !videoFile}
+  1343→                >
+  1344→                  {processing ? (
+  1345→                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Конвертация...</>
+  1346→                  ) : (
+  1347→                    'Конвертировать в GIF'
+  1348→                  )}
+  1349→                </Button>
+  1350→              </CardContent>
+  1351→            </Card>
+  1352→          </div>
+  1353→
+  1354→          <div className="lg:col-span-2">
+  1355→            {outputUrl ? (
+  1356→              <Card>
+  1357→                <CardHeader className="pb-3">
+  1358→                  <div className="flex items-center justify-between">
+  1359→                    <CardTitle className="text-base">Результат</CardTitle>
+  1360→                    <Badge variant="secondary">{formatFileSize(outputSize)}</Badge>
+  1361→                  </div>
+  1362→                </CardHeader>
+  1363→                <CardContent className="space-y-3">
+  1364→                  <div className="bg-muted/30 rounded-lg p-4 flex items-center justify-center">
+  1365→                    <img src={outputUrl} alt="Конвертированный GIF" className="max-w-full max-h-[500px] rounded-lg" />
+  1366→                  </div>
+  1367→                  <Button onClick={onDownload} className="w-full gap-2">
+  1368→                    <Download className="h-4 w-4" />
+  1369→                    Скачать GIF
+  1370→                  </Button>
+  1371→                </CardContent>
+  1372→              </Card>
+  1373→            ) : (
+  1374→              <Card>
+  1375→                <CardContent className="py-12 text-center">
+  1376→                  <Film className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
+  1377→                  <p className="text-muted-foreground">Загрузите видео и настройте параметры конвертации</p>
+  1378→                </CardContent>
+  1379→              </Card>
+  1380→            )}
+  1381→          </div>
+  1382→        </div>
+  1383→      </main>
+  1384→    </div>
+  1385→  )
+  1386→}
+  1387→
+  1388→// ==================== SPLIT VIEW ====================
+  1389→function SplitView({
+  1390→  file,
+  1391→  previewUrl,
+  1392→  uploadMeta,
+  1393→  processing,
+  1394→  onFileSelect,
+  1395→  onDrop,
+  1396→  onDragOver,
+  1397→  onDragLeave,
+  1398→  dragOver,
+  1399→  fileInputRef,
+  1400→  acceptTypes,
+  1401→  onProcess,
+  1402→  onBack,
+  1403→}: {
+  1404→  file: File | null
+  1405→  previewUrl: string | null
+  1406→  uploadMeta: any
+  1407→  processing: boolean
+  1408→  onFileSelect: (file: File) => void
+  1409→  onDrop: (e: React.DragEvent) => void
+  1410→  onDragOver: (e: React.DragEvent) => void
+  1411→  onDragLeave: () => void
+  1412→  dragOver: boolean
+  1413→  fileInputRef: React.RefObject<HTMLInputElement>
+  1414→  acceptTypes: string
+  1415→  onProcess: (endpoint: string, body: any) => void
+  1416→  onBack: () => void
+  1417→}) {
+  1418→  const [splitFrames, setSplitFrames] = useState<{ name: string; data: string; size: number }[]>([])
+  1419→
+  1420→  const handleSplit = () => {
+  1421→    if (!uploadMeta?.inputPath) return
+  1422→    setProcessing(true)
+  1423→    fetch('/api/gif/split', {
+  1424→      method: 'POST',
+  1425→      headers: { 'Content-Type': 'application/json' },
+  1426→      body: JSON.stringify({ inputPath: uploadMeta.inputPath }),
+  1427→    })
+  1428→      .then(res => res.json())
+  1429→      .then(data => {
+  1430→        if (data.error) throw new Error(data.error)
+  1431→        setSplitFrames(data.frames)
+  1432→      })
+  1433→      .catch(err => {
+  1434→        // toast handled elsewhere
+  1435→      })
+  1436→      .finally(() => setProcessing(false))
+  1437→  }
+  1438→
+  1439→  const downloadFrame = (frame: { name: string; data: string }) => {
+  1440→    const a = document.createElement('a')
+  1441→    a.href = frame.data
+  1442→    a.download = frame.name
+  1443→    a.click()
+  1444→  }
+  1445→
+  1446→  return (
+  1447→    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+  1448→      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+  1449→        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+  1450→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+  1451→            <ArrowLeft className="h-4 w-4" /> Назад
+  1452→          </Button>
+  1453→          <Separator orientation="vertical" className="h-6" />
+  1454→          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center text-white">
+  1455→            <LayoutGrid className="h-4 w-4" />
+  1456→          </div>
+  1457→          <h1 className="text-lg font-semibold">Разделение GIF на кадры</h1>
+  1458→        </div>
+  1459→      </header>
+  1460→
+  1461→      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+  1462→        {!file ? (
+  1463→          <UploadArea
+  1464→            onFileSelect={onFileSelect}
+  1465→            onDrop={onDrop}
+  1466→            onDragOver={onDragOver}
+  1467→            onDragLeave={onDragLeave}
+  1468→            dragOver={dragOver}
+  1469→            fileInputRef={fileInputRef}
+  1470→            acceptTypes={acceptTypes}
+  1471→          />
+  1472→        ) : splitFrames.length === 0 ? (
+  1473→          <div className="space-y-4">
+  1474→            <Card>
+  1475→              <CardContent className="py-6">
+  1476→                <div className="flex items-center gap-4">
+  1477→                  <img src={previewUrl!} alt="GIF" className="max-w-[200px] max-h-[200px] rounded" />
+  1478→                  <div className="space-y-2">
+  1479→                    <p className="font-medium">{file.name}</p>
+  1480→                    {uploadMeta && (
+  1481→                      <p className="text-sm text-muted-foreground">
+  1482→                        {uploadMeta.width}×{uploadMeta.height}px • {uploadMeta.pages} кадров • {formatFileSize(uploadMeta.inputSize)}
+  1483→                      </p>
+  1484→                    )}
+  1485→                    <Button onClick={handleSplit} disabled={processing}>
+  1486→                      {processing ? (
+  1487→                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Разделение...</>
+  1488→                      ) : (
+  1489→                        'Разделить на кадры'
+  1490→                      )}
+  1491→                    </Button>
+  1492→                  </div>
+  1493→                </div>
+  1494→              </CardContent>
+  1495→            </Card>
+  1496→          </div>
+  1497→        ) : (
+  1498→          <Card>
+  1499→            <CardHeader className="pb-3">
+  1500→              <div className="flex items-center justify-between">
+  1501→                <CardTitle>Извлечённые кадры ({splitFrames.length})</CardTitle>
+  1502→                <Button variant="outline" size="sm" onClick={() => setSplitFrames([])}>
+  1503→                  Сбросить
+  1504→                </Button>
+  1505→              </div>
+  1506→            </CardHeader>
+  1507→            <CardContent>
+  1508→              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-[600px] overflow-y-auto">
+  1509→                {splitFrames.map((frame, index) => (
+  1510→                  <div key={index} className="group relative border rounded-lg overflow-hidden bg-muted/30 hover:shadow-md transition-shadow">
+  1511→                    <img src={frame.data} alt={`Кадр ${index + 1}`} className="w-full h-auto" />
+  1512→                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+  1513→                      <Button size="sm" variant="secondary" onClick={() => downloadFrame(frame)}>
+  1514→                        <Download className="h-3 w-3 mr-1" />
+  1515→                        {frame.name}
+  1516→                      </Button>
+  1517→                    </div>
+  1518→                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs text-center py-1">
+  1519→                      Кадр {index + 1}
+  1520→                    </div>
+  1521→                  </div>
+  1522→                ))}
+  1523→              </div>
+  1524→            </CardContent>
+  1525→          </Card>
+  1526→        )}
+  1527→      </main>
+  1528→    </div>
+  1529→  )
+  1530→}
+  1531→
+  1532→// ==================== CONVERT VIEW ====================
+  1533→function ConvertView({
+  1534→  processing,
+  1535→  outputUrl,
+  1536→  outputSize,
+  1537→  onProcess,
+  1538→  onDownload,
+  1539→  onBack,
+  1540→}: {
+  1541→  processing: boolean
+  1542→  outputUrl: string | null
+  1543→  outputSize: number
+  1544→  onProcess: (endpoint: string, formData: FormData) => void
+  1545→  onDownload: () => void
+  1546→  onBack: () => void
+  1547→}) {
+  1548→  const [sourceFile, setSourceFile] = useState<File | null>(null)
+  1549→  const [sourcePreview, setSourcePreview] = useState<string | null>(null)
+  1550→  const [targetFormat, setTargetFormat] = useState<string>('mp4')
+  1551→  const [quality, setQuality] = useState(75)
+  1552→  const fileInputRef = useRef<HTMLInputElement>(null)
+  1553→
+  1554→  const handleFileSelect = (file: File) => {
+  1555→    setSourceFile(file)
+  1556→    setSourcePreview(URL.createObjectURL(file))
+  1557→    const mime = file.type || ''
+  1558→    const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  1559→    if (mime.includes('gif') || ext === 'gif') {
+  1560→      setTargetFormat('mp4')
+  1561→    } else if (mime.includes('video') || ['mp4', 'webm', 'avi'].includes(ext)) {
+  1562→      setTargetFormat('gif')
+  1563→    } else {
+  1564→      setTargetFormat('png')
+  1565→    }
+  1566→  }
+  1567→
+  1568→  const handleConvert = () => {
+  1569→    if (!sourceFile) return
+  1570→    const formData = new FormData()
+  1571→    formData.append('file', sourceFile)
+  1572→    formData.append('targetFormat', targetFormat)
+  1573→    formData.append('quality', String(quality))
+  1574→    onProcess('convert', formData)
+  1575→  }
+  1576→
+  1577→  const getSourceType = () => {
+  1578→    if (!sourceFile) return 'unknown'
+  1579→    const mime = sourceFile.type || ''
+  1580→    const ext = sourceFile.name.split('.').pop()?.toLowerCase() || ''
+  1581→    if (mime.includes('gif') || ext === 'gif') return 'gif'
+  1582→    if (mime.includes('video') || ['mp4', 'webm', 'avi', 'mov'].includes(ext)) return 'video'
+  1583→    return 'image'
+  1584→  }
+  1585→
+  1586→  const sourceType = getSourceType()
+  1587→
+  1588→  const outputFormats: Record<string, { value: string; label: string; desc: string }[]> = {
+  1589→    gif: [
+  1590→      { value: 'mp4', label: 'MP4', desc: 'Видео H.264 — маленький размер, широкая поддержка' },
+  1591→      { value: 'webm', label: 'WebM', desc: 'Видео VP9 — открытый формат, хорошее сжатие' },
+  1592→      { value: 'apng', label: 'APNG', desc: 'Анимированный PNG — лучшее качество, большой размер' },
+  1593→      { value: 'webp', label: 'WebP', desc: 'Анимированный WebP — современный формат, малый размер' },
+  1594→    ],
+  1595→    video: [
+  1596→      { value: 'gif', label: 'GIF', desc: 'Анимированный GIF — универсальный формат' },
+  1597→      { value: 'mp4', label: 'MP4', desc: 'Перекодировать в MP4' },
+  1598→      { value: 'webm', label: 'WebM', desc: 'Перекодировать в WebM' },
+  1599→    ],
+  1600→    image: [
+  1601→      { value: 'png', label: 'PNG', desc: 'Без потерь качества, прозрачность' },
+  1602→      { value: 'jpg', label: 'JPG', desc: 'Маленький размер, нет прозрачности' },
+  1603→      { value: 'webp', label: 'WebP', desc: 'Современный формат, малый размер' },
+  1604→      { value: 'gif', label: 'GIF', desc: 'Формат GIF (один кадр)' },
+  1605→      { value: 'bmp', label: 'BMP', desc: 'Без сжатия, максимальный размер' },
+  1606→      { value: 'tiff', label: 'TIFF', desc: 'Профессиональный формат, поддержка слоёв' },
+  1607→    ],
+  1608→    unknown: [],
+  1609→  }
+  1610→
+  1611→  const formatInfo = outputFormats[sourceType]?.find(f => f.value === targetFormat)
+  1612→
+  1613→  const getOutputContentType = () => {
+  1614→    if (['mp4', 'webm'].includes(targetFormat)) return 'video'
+  1615→    return 'image'
+  1616→  }
+  1617→
+  1618→  return (
+  1619→    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+  1620→      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+  1621→        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+  1622→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+  1623→            <ArrowLeft className="h-4 w-4" /> Назад
+  1624→          </Button>
+  1625→          <Separator orientation="vertical" className="h-6" />
+  1626→          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center text-white">
+  1627→            <ArrowRightLeft className="h-4 w-4" />
+  1628→          </div>
+  1629→          <h1 className="text-lg font-semibold">Конвертация</h1>
+  1630→        </div>
+  1631→      </header>
+  1632→
+  1633→      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+  1634→        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  1635→          {/* Left panel */}
+  1636→          <div className="lg:col-span-1 space-y-4">
+  1637→            {/* Upload */}
+  1638→            <Card>
+  1639→              <CardHeader className="pb-3">
+  1640→                <CardTitle className="text-base">Исходный файл</CardTitle>
+  1641→              </CardHeader>
+  1642→              <CardContent className="space-y-4">
+  1643→                <div
+  1644→                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+  1645→                  onClick={() => fileInputRef.current?.click()}
+  1646→                >
+  1647→                  {sourcePreview ? (
+  1648→                    <div className="space-y-2">
+  1649→                      {getSourceType() === 'video' ? (
+  1650→                        <video src={sourcePreview} className="max-h-[120px] mx-auto rounded" muted />
+  1651→                      ) : (
+  1652→                        <img src={sourcePreview} alt="Превью" className="max-h-[120px] mx-auto rounded" />
+  1653→                      )}
+  1654→                      <p className="text-sm font-medium truncate">{sourceFile?.name}</p>
+  1655→                    </div>
+  1656→                  ) : (
+  1657→                    <>
+  1658→                      <ArrowRightLeft className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+  1659→                      <p className="text-sm">Выберите файл для конвертации</p>
+  1660→                    </>
+  1661→                  )}
+  1662→                </div>
+  1663→                <input
+  1664→                  ref={fileInputRef}
+  1665→                  type="file"
+  1666→                  accept="image/gif,image/png,image/jpeg,image/webp,image/bmp,video/mp4,video/webm"
+  1667→                  className="hidden"
+  1668→                  onChange={e => {
+  1669→                    const f = e.target.files?.[0]
+  1670→                    if (f) handleFileSelect(f)
+  1671→                  }}
+  1672→                />
+  1673→              </CardContent>
+  1674→            </Card>
+  1675→
+  1676→            {/* Target format */}
+  1677→            <Card>
+  1678→              <CardHeader className="pb-3">
+  1679→                <CardTitle className="text-base">Целевой формат</CardTitle>
+  1680→              </CardHeader>
+  1681→              <CardContent className="space-y-4">
+  1682→                {sourceFile ? (
+  1683→                  <>
+  1684→                    {/* Source → Target visual */}
+  1685→                    <div className="flex items-center justify-center gap-3 py-2">
+  1686→                      <Badge variant="outline" className="text-sm px-3 py-1">
+  1687→                        {sourceFile.name.split('.').pop()?.toUpperCase()}
+  1688→                      </Badge>
+  1689→                      <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
+  1690→                      <Badge className="text-sm px-3 py-1 bg-violet-600">
+  1691→                        {targetFormat.toUpperCase()}
+  1692→                      </Badge>
+  1693→                    </div>
+  1694→
+  1695→                    {/* Format selection */}
+  1696→                    <div className="space-y-2">
+  1697→                      <Label>Выберите формат</Label>
+  1698→                      <div className="grid grid-cols-2 gap-2">
+  1699→                        {outputFormats[sourceType]?.map(fmt => (
+  1700→                          <Button
+  1701→                            key={fmt.value}
+  1702→                            variant={targetFormat === fmt.value ? 'default' : 'outline'}
+  1703→                            size="sm"
+  1704→                            className={targetFormat === fmt.value ? 'bg-violet-600 hover:bg-violet-700' : ''}
+  1705→                            onClick={() => setTargetFormat(fmt.value)}
+  1706→                          >
+  1707→                            {fmt.label}
+  1708→                          </Button>
+  1709→                        ))}
+  1710→                      </div>
+  1711→                    </div>
+  1712→
+  1713→                    {formatInfo && (
+  1714→                      <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2">
+  1715→                        {formatInfo.desc}
+  1716→                      </p>
+  1717→                    )}
+  1718→
+  1719→                    {/* Quality slider */}
+  1720→                    {!['apng', 'bmp', 'gif'].includes(targetFormat) && (
+  1721→                      <div className="space-y-2">
+  1722→                        <div className="flex justify-between">
+  1723→                          <Label>Качество</Label>
+  1724→                          <span className="text-sm font-medium">{quality}%</span>
+  1725→                        </div>
+  1726→                        <Slider
+  1727→                          value={[quality]}
+  1728→                          onValueChange={([v]) => setQuality(v)}
+  1729→                          min={10}
+  1730→                          max={100}
+  1731→                          step={5}
+  1732→                        />
+  1733→                        <div className="flex justify-between text-xs text-muted-foreground">
+  1734→                          <span>Малый размер</span>
+  1735→                          <span>Высокое качество</span>
+  1736→                        </div>
+  1737→                      </div>
+  1738→                    )}
+  1739→
+  1740→                    <Button
+  1741→                      className="w-full bg-violet-600 hover:bg-violet-700"
+  1742→                      onClick={handleConvert}
+  1743→                      disabled={processing || !sourceFile}
+  1744→                    >
+  1745→                      {processing ? (
+  1746→                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Конвертация...</>
+  1747→                      ) : (
+  1748→                        <>
+  1749→                          <ArrowRightLeft className="mr-2 h-4 w-4" />
+  1750→                          Конвертировать в {targetFormat.toUpperCase()}
+  1751→                        </>
+  1752→                      )}
+  1753→                    </Button>
+  1754→                  </>
+  1755→                ) : (
+  1756→                  <p className="text-sm text-muted-foreground text-center py-4">
+  1757→                    Сначала загрузите файл
+  1758→                  </p>
+  1759→                )}
+  1760→              </CardContent>
+  1761→            </Card>
+  1762→
+  1763→            {/* Supported conversions info */}
+  1764→            <Card>
+  1765→              <CardHeader className="pb-3">
+  1766→                <CardTitle className="text-base">Поддерживаемые конвертации</CardTitle>
+  1767→              </CardHeader>
+  1768→              <CardContent>
+  1769→                <div className="space-y-3 text-sm">
+  1770→                  <div className="flex items-start gap-2">
+  1771→                    <ImageIcon className="h-4 w-4 mt-0.5 text-pink-500" />
+  1772→                    <div>
+  1773→                      <p className="font-medium">GIF → Видео</p>
+  1774→                      <p className="text-muted-foreground">MP4, WebM — уменьшение размера в 5-10 раз</p>
+  1775→                    </div>
+  1776→                  </div>
+  1777→                  <div className="flex items-start gap-2">
+  1778→                    <ImageIcon className="h-4 w-4 mt-0.5 text-emerald-500" />
+  1779→                    <div>
+  1780→                      <p className="font-medium">GIF → APNG</p>
+  1781→                      <p className="text-muted-foreground">Лучшее качество, поддержка прозрачности</p>
+  1782→                    </div>
+  1783→                  </div>
+  1784→                  <div className="flex items-start gap-2">
+  1785→                    <ImageIcon className="h-4 w-4 mt-0.5 text-sky-500" />
+  1786→                    <div>
+  1787→                      <p className="font-medium">GIF → WebP</p>
+  1788→                      <p className="text-muted-foreground">Современный формат, малый размер</p>
+  1789→                    </div>
+  1790→                  </div>
+  1791→                  <div className="flex items-start gap-2">
+  1792→                    <Film className="h-4 w-4 mt-0.5 text-purple-500" />
+  1793→                    <div>
+  1794→                      <p className="font-medium">Видео → GIF</p>
+  1795→                      <p className="text-muted-foreground">MP4/WebM → GIF анимация</p>
+  1796→                    </div>
+  1797→                  </div>
+  1798→                  <div className="flex items-start gap-2">
+  1799→                    <ImageIcon className="h-4 w-4 mt-0.5 text-amber-500" />
+  1800→                    <div>
+  1801→                      <p className="font-medium">Изображение → Формат</p>
+  1802→                      <p className="text-muted-foreground">PNG, JPG, WebP, GIF, BMP, TIFF</p>
+  1803→                    </div>
+  1804→                  </div>
+  1805→                </div>
+  1806→              </CardContent>
+  1807→            </Card>
+  1808→          </div>
+  1809→
+  1810→          {/* Right: Preview & Result */}
+  1811→          <div className="lg:col-span-2 space-y-4">
+  1812→            {outputUrl ? (
+  1813→              <Card className="border-violet-200">
+  1814→                <CardHeader className="pb-3">
+  1815→                  <div className="flex items-center justify-between">
+  1816→                    <CardTitle className="text-base">Результат конвертации</CardTitle>
+  1817→                    <Badge variant="secondary" className="bg-violet-100 text-violet-700">
+  1818→                      {targetFormat.toUpperCase()} • {formatFileSize(outputSize)}
+  1819→                    </Badge>
+  1820→                  </div>
+  1821→                </CardHeader>
+  1822→                <CardContent className="space-y-4">
+  1823→                  <div className="bg-muted/30 rounded-lg p-4 flex items-center justify-center min-h-[300px]">
+  1824→                    {getOutputContentType() === 'video' ? (
+  1825→                      <video
+  1826→                        src={outputUrl}
+  1827→                        controls
+  1828→                        autoPlay
+  1829→                        loop
+  1830→                        className="max-w-full max-h-[500px] rounded-lg"
+  1831→                      />
+  1832→                    ) : (
+  1833→                      <img
+  1834→                        src={outputUrl}
+  1835→                        alt="Результат конвертации"
+  1836→                        className="max-w-full max-h-[500px] rounded-lg"
+  1837→                      />
+  1838→                    )}
+  1839→                  </div>
+  1840→
+  1841→                  {/* Conversion summary */}
+  1842→                  {sourceFile && (
+  1843→                    <div className="flex items-center justify-center gap-4 text-sm bg-muted/50 rounded-lg p-3">
+  1844→                      <span className="text-muted-foreground">
+  1845→                        {sourceFile.name.split('.').pop()?.toUpperCase()} ({formatFileSize(sourceFile.size)})
+  1846→                      </span>
+  1847→                      <ArrowRightLeft className="h-4 w-4 text-violet-500" />
+  1848→                      <span className="font-medium">
+  1849→                        {targetFormat.toUpperCase()} ({formatFileSize(outputSize)})
+  1850→                      </span>
+  1851→                      {outputSize < sourceFile.size && (
+  1852→                        <Badge variant="secondary" className="bg-green-100 text-green-700">
+  1853→                          -{Math.round((1 - outputSize / sourceFile.size) * 100)}%
+  1854→                        </Badge>
+  1855→                      )}
+  1856→                      {outputSize > sourceFile.size && (
+  1857→                        <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+  1858→                          +{Math.round((outputSize / sourceFile.size - 1) * 100)}%
+  1859→                        </Badge>
+  1860→                      )}
+  1861→                    </div>
+  1862→                  )}
+  1863→
+  1864→                  <Button onClick={onDownload} className="w-full gap-2 bg-violet-600 hover:bg-violet-700">
+  1865→                    <Download className="h-4 w-4" />
+  1866→                    Скачать {targetFormat.toUpperCase()}
+  1867→                  </Button>
+  1868→                </CardContent>
+  1869→              </Card>
+  1870→            ) : (
+  1871→              <Card>
+  1872→                <CardContent className="py-16 text-center">
+  1873→                  <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-muted-foreground/20" />
+  1874→                  <h3 className="text-lg font-medium mb-2">Конвертация форматов</h3>
+  1875→                  <p className="text-muted-foreground max-w-md mx-auto">
+  1876→                    Загрузите GIF, видео или изображение и выберите целевой формат. 
+  1877→                    Поддерживаются конвертации GIF → MP4/WebM/APNG/WebP, видео → GIF, 
+  1878→                    а также преобразование между форматами изображений.
+  1879→                  </p>
+  1880→                </CardContent>
+  1881→              </Card>
+  1882→            )}
+  1883→
+  1884→            {/* Comparison: source vs output */}
+  1885→            {outputUrl && sourcePreview && (
+  1886→              <Card>
+  1887→                <CardHeader className="pb-3">
+  1888→                  <CardTitle className="text-base">Сравнение</CardTitle>
+  1889→                </CardHeader>
+  1890→                <CardContent>
+  1891→                  <div className="grid grid-cols-2 gap-4">
+  1892→                    <div className="space-y-2">
+  1893→                      <p className="text-sm font-medium text-center text-muted-foreground">Оригинал</p>
+  1894→                      <div className="bg-muted/30 rounded-lg p-2 flex items-center justify-center min-h-[200px]">
+  1895→                        {getSourceType() === 'video' ? (
+  1896→                          <video src={sourcePreview} className="max-w-full max-h-[200px] rounded" muted loop autoPlay />
+  1897→                        ) : (
+  1898→                          <img src={sourcePreview} alt="Оригинал" className="max-w-full max-h-[200px] rounded" />
+  1899→                        )}
+  1900→                      </div>
+  1901→                    </div>
+  1902→                    <div className="space-y-2">
+  1903→                      <p className="text-sm font-medium text-center text-muted-foreground">Результат</p>
+  1904→                      <div className="bg-muted/30 rounded-lg p-2 flex items-center justify-center min-h-[200px]">
+  1905→                        {getOutputContentType() === 'video' ? (
+  1906→                          <video src={outputUrl} className="max-w-full max-h-[200px] rounded" muted loop autoPlay />
+  1907→                        ) : (
+  1908→                          <img src={outputUrl} alt="Результат" className="max-w-full max-h-[200px] rounded" />
+  1909→                        )}
+  1910→                      </div>
+  1911→                    </div>
+  1912→                  </div>
+  1913→                </CardContent>
+  1914→              </Card>
+  1915→            )}
+  1916→          </div>
+  1917→        </div>
+  1918→      </main>
+  1919→    </div>
+  1920→  )
+  1921→}
+  1922→

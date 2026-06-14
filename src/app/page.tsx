@@ -29,6 +29,7 @@ import {
   LayoutGrid,
   Type,
   Zap,
+  ArrowRightLeft,
 } from 'lucide-react'
 import { tools, type ToolType, type ToolConfig } from '@/lib/tools-config'
 
@@ -46,6 +47,7 @@ const toolIcons: Record<ToolType, React.ReactNode> = {
   'cut': <Scissors className="h-5 w-5" />,
   'split': <LayoutGrid className="h-5 w-5" />,
   'add-text': <Type className="h-5 w-5" />,
+  'convert': <ArrowRightLeft className="h-5 w-5" />,
 }
 
 const toolColors: Record<ToolType, string> = {
@@ -61,6 +63,7 @@ const toolColors: Record<ToolType, string> = {
   'cut': 'from-orange-500 to-orange-600',
   'split': 'from-cyan-500 to-cyan-600',
   'add-text': 'from-pink-500 to-pink-600',
+  'convert': 'from-violet-500 to-violet-600',
 }
 
 // ==================== FILE SIZE FORMATTER ====================
@@ -229,7 +232,7 @@ export default function Home() {
               <img src="/logo-gif.png" alt="GIF Tools" className="h-8 w-8 rounded-lg" />
               <h1 className="text-2xl font-bold tracking-tight">GIF Tools</h1>
             </div>
-            <Badge variant="secondary" className="ml-2">12 инструментов</Badge>
+            <Badge variant="secondary" className="ml-2">13 инструментов</Badge>
             <div className="ml-auto text-sm text-muted-foreground hidden sm:block">
               Бесплатный онлайн-редактор GIF
             </div>
@@ -296,6 +299,20 @@ export default function Home() {
   if (selectedTool === 'video-to-gif') {
     return (
       <VideoToGifView
+        processing={processing}
+        outputUrl={outputUrl}
+        outputSize={outputSize}
+        onProcess={processWithFormData}
+        onDownload={downloadResult}
+        onBack={goBack}
+      />
+    )
+  }
+
+  // ==================== RENDER: CONVERT ====================
+  if (selectedTool === 'convert') {
+    return (
+      <ConvertView
         processing={processing}
         outputUrl={outputUrl}
         outputSize={outputSize}
@@ -1507,6 +1524,397 @@ function SplitView({
             </CardContent>
           </Card>
         )}
+      </main>
+    </div>
+  )
+}
+
+// ==================== CONVERT VIEW ====================
+function ConvertView({
+  processing,
+  outputUrl,
+  outputSize,
+  onProcess,
+  onDownload,
+  onBack,
+}: {
+  processing: boolean
+  outputUrl: string | null
+  outputSize: number
+  onProcess: (endpoint: string, formData: FormData) => void
+  onDownload: () => void
+  onBack: () => void
+}) {
+  const [sourceFile, setSourceFile] = useState<File | null>(null)
+  const [sourcePreview, setSourcePreview] = useState<string | null>(null)
+  const [targetFormat, setTargetFormat] = useState<string>('mp4')
+  const [quality, setQuality] = useState(75)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileSelect = (file: File) => {
+    setSourceFile(file)
+    setSourcePreview(URL.createObjectURL(file))
+    const mime = file.type || ''
+    const ext = file.name.split('.').pop()?.toLowerCase() || ''
+    if (mime.includes('gif') || ext === 'gif') {
+      setTargetFormat('mp4')
+    } else if (mime.includes('video') || ['mp4', 'webm', 'avi'].includes(ext)) {
+      setTargetFormat('gif')
+    } else {
+      setTargetFormat('png')
+    }
+  }
+
+  const handleConvert = () => {
+    if (!sourceFile) return
+    const formData = new FormData()
+    formData.append('file', sourceFile)
+    formData.append('targetFormat', targetFormat)
+    formData.append('quality', String(quality))
+    onProcess('convert', formData)
+  }
+
+  const getSourceType = () => {
+    if (!sourceFile) return 'unknown'
+    const mime = sourceFile.type || ''
+    const ext = sourceFile.name.split('.').pop()?.toLowerCase() || ''
+    if (mime.includes('gif') || ext === 'gif') return 'gif'
+    if (mime.includes('video') || ['mp4', 'webm', 'avi', 'mov'].includes(ext)) return 'video'
+    return 'image'
+  }
+
+  const sourceType = getSourceType()
+
+  const outputFormats: Record<string, { value: string; label: string; desc: string }[]> = {
+    gif: [
+      { value: 'mp4', label: 'MP4', desc: 'Видео H.264 — маленький размер, широкая поддержка' },
+      { value: 'webm', label: 'WebM', desc: 'Видео VP9 — открытый формат, хорошее сжатие' },
+      { value: 'apng', label: 'APNG', desc: 'Анимированный PNG — лучшее качество, большой размер' },
+      { value: 'webp', label: 'WebP', desc: 'Анимированный WebP — современный формат, малый размер' },
+    ],
+    video: [
+      { value: 'gif', label: 'GIF', desc: 'Анимированный GIF — универсальный формат' },
+      { value: 'mp4', label: 'MP4', desc: 'Перекодировать в MP4' },
+      { value: 'webm', label: 'WebM', desc: 'Перекодировать в WebM' },
+    ],
+    image: [
+      { value: 'png', label: 'PNG', desc: 'Без потерь качества, прозрачность' },
+      { value: 'jpg', label: 'JPG', desc: 'Маленький размер, нет прозрачности' },
+      { value: 'webp', label: 'WebP', desc: 'Современный формат, малый размер' },
+      { value: 'gif', label: 'GIF', desc: 'Формат GIF (один кадр)' },
+      { value: 'bmp', label: 'BMP', desc: 'Без сжатия, максимальный размер' },
+      { value: 'tiff', label: 'TIFF', desc: 'Профессиональный формат, поддержка слоёв' },
+    ],
+    unknown: [],
+  }
+
+  const formatInfo = outputFormats[sourceType]?.find(f => f.value === targetFormat)
+
+  const getOutputContentType = () => {
+    if (['mp4', 'webm'].includes(targetFormat)) return 'video'
+    return 'image'
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
+      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+            <ArrowLeft className="h-4 w-4" /> Назад
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center text-white">
+            <ArrowRightLeft className="h-4 w-4" />
+          </div>
+          <h1 className="text-lg font-semibold">Конвертация</h1>
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left panel */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Upload */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Исходный файл</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {sourcePreview ? (
+                    <div className="space-y-2">
+                      {getSourceType() === 'video' ? (
+                        <video src={sourcePreview} className="max-h-[120px] mx-auto rounded" muted />
+                      ) : (
+                        <img src={sourcePreview} alt="Превью" className="max-h-[120px] mx-auto rounded" />
+                      )}
+                      <p className="text-sm font-medium truncate">{sourceFile?.name}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <ArrowRightLeft className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm">Выберите файл для конвертации</p>
+                    </>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/gif,image/png,image/jpeg,image/webp,image/bmp,video/mp4,video/webm"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) handleFileSelect(f)
+                  }}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Target format */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Целевой формат</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {sourceFile ? (
+                  <>
+                    {/* Source → Target visual */}
+                    <div className="flex items-center justify-center gap-3 py-2">
+                      <Badge variant="outline" className="text-sm px-3 py-1">
+                        {sourceFile.name.split('.').pop()?.toUpperCase()}
+                      </Badge>
+                      <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
+                      <Badge className="text-sm px-3 py-1 bg-violet-600">
+                        {targetFormat.toUpperCase()}
+                      </Badge>
+                    </div>
+
+                    {/* Format selection */}
+                    <div className="space-y-2">
+                      <Label>Выберите формат</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {outputFormats[sourceType]?.map(fmt => (
+                          <Button
+                            key={fmt.value}
+                            variant={targetFormat === fmt.value ? 'default' : 'outline'}
+                            size="sm"
+                            className={targetFormat === fmt.value ? 'bg-violet-600 hover:bg-violet-700' : ''}
+                            onClick={() => setTargetFormat(fmt.value)}
+                          >
+                            {fmt.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {formatInfo && (
+                      <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2">
+                        {formatInfo.desc}
+                      </p>
+                    )}
+
+                    {/* Quality slider */}
+                    {!['apng', 'bmp', 'gif'].includes(targetFormat) && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <Label>Качество</Label>
+                          <span className="text-sm font-medium">{quality}%</span>
+                        </div>
+                        <Slider
+                          value={[quality]}
+                          onValueChange={([v]) => setQuality(v)}
+                          min={10}
+                          max={100}
+                          step={5}
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Малый размер</span>
+                          <span>Высокое качество</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <Button
+                      className="w-full bg-violet-600 hover:bg-violet-700"
+                      onClick={handleConvert}
+                      disabled={processing || !sourceFile}
+                    >
+                      {processing ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Конвертация...</>
+                      ) : (
+                        <>
+                          <ArrowRightLeft className="mr-2 h-4 w-4" />
+                          Конвертировать в {targetFormat.toUpperCase()}
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Сначала загрузите файл
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Supported conversions info */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Поддерживаемые конвертации</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-2">
+                    <ImageIcon className="h-4 w-4 mt-0.5 text-pink-500" />
+                    <div>
+                      <p className="font-medium">GIF → Видео</p>
+                      <p className="text-muted-foreground">MP4, WebM — уменьшение размера в 5-10 раз</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ImageIcon className="h-4 w-4 mt-0.5 text-emerald-500" />
+                    <div>
+                      <p className="font-medium">GIF → APNG</p>
+                      <p className="text-muted-foreground">Лучшее качество, поддержка прозрачности</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ImageIcon className="h-4 w-4 mt-0.5 text-sky-500" />
+                    <div>
+                      <p className="font-medium">GIF → WebP</p>
+                      <p className="text-muted-foreground">Современный формат, малый размер</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Film className="h-4 w-4 mt-0.5 text-purple-500" />
+                    <div>
+                      <p className="font-medium">Видео → GIF</p>
+                      <p className="text-muted-foreground">MP4/WebM → GIF анимация</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ImageIcon className="h-4 w-4 mt-0.5 text-amber-500" />
+                    <div>
+                      <p className="font-medium">Изображение → Формат</p>
+                      <p className="text-muted-foreground">PNG, JPG, WebP, GIF, BMP, TIFF</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right: Preview & Result */}
+          <div className="lg:col-span-2 space-y-4">
+            {outputUrl ? (
+              <Card className="border-violet-200">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Результат конвертации</CardTitle>
+                    <Badge variant="secondary" className="bg-violet-100 text-violet-700">
+                      {targetFormat.toUpperCase()} • {formatFileSize(outputSize)}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="bg-muted/30 rounded-lg p-4 flex items-center justify-center min-h-[300px]">
+                    {getOutputContentType() === 'video' ? (
+                      <video
+                        src={outputUrl}
+                        controls
+                        autoPlay
+                        loop
+                        className="max-w-full max-h-[500px] rounded-lg"
+                      />
+                    ) : (
+                      <img
+                        src={outputUrl}
+                        alt="Результат конвертации"
+                        className="max-w-full max-h-[500px] rounded-lg"
+                      />
+                    )}
+                  </div>
+
+                  {/* Conversion summary */}
+                  {sourceFile && (
+                    <div className="flex items-center justify-center gap-4 text-sm bg-muted/50 rounded-lg p-3">
+                      <span className="text-muted-foreground">
+                        {sourceFile.name.split('.').pop()?.toUpperCase()} ({formatFileSize(sourceFile.size)})
+                      </span>
+                      <ArrowRightLeft className="h-4 w-4 text-violet-500" />
+                      <span className="font-medium">
+                        {targetFormat.toUpperCase()} ({formatFileSize(outputSize)})
+                      </span>
+                      {outputSize < sourceFile.size && (
+                        <Badge variant="secondary" className="bg-green-100 text-green-700">
+                          -{Math.round((1 - outputSize / sourceFile.size) * 100)}%
+                        </Badge>
+                      )}
+                      {outputSize > sourceFile.size && (
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+                          +{Math.round((outputSize / sourceFile.size - 1) * 100)}%
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  <Button onClick={onDownload} className="w-full gap-2 bg-violet-600 hover:bg-violet-700">
+                    <Download className="h-4 w-4" />
+                    Скачать {targetFormat.toUpperCase()}
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="py-16 text-center">
+                  <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-muted-foreground/20" />
+                  <h3 className="text-lg font-medium mb-2">Конвертация форматов</h3>
+                  <p className="text-muted-foreground max-w-md mx-auto">
+                    Загрузите GIF, видео или изображение и выберите целевой формат. 
+                    Поддерживаются конвертации GIF → MP4/WebM/APNG/WebP, видео → GIF, 
+                    а также преобразование между форматами изображений.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Comparison: source vs output */}
+            {outputUrl && sourcePreview && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Сравнение</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-center text-muted-foreground">Оригинал</p>
+                      <div className="bg-muted/30 rounded-lg p-2 flex items-center justify-center min-h-[200px]">
+                        {getSourceType() === 'video' ? (
+                          <video src={sourcePreview} className="max-w-full max-h-[200px] rounded" muted loop autoPlay />
+                        ) : (
+                          <img src={sourcePreview} alt="Оригинал" className="max-w-full max-h-[200px] rounded" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-center text-muted-foreground">Результат</p>
+                      <div className="bg-muted/30 rounded-lg p-2 flex items-center justify-center min-h-[200px]">
+                        {getOutputContentType() === 'video' ? (
+                          <video src={outputUrl} className="max-w-full max-h-[200px] rounded" muted loop autoPlay />
+                        ) : (
+                          <img src={outputUrl} alt="Результат" className="max-w-full max-h-[200px] rounded" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
       </main>
     </div>
   )

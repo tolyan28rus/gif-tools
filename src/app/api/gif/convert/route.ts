@@ -1,0 +1,242 @@
+import { NextRequest, NextResponse } from 'next/server'
+import sharp from 'sharp'
+import { readFile, writeFile, unlink, mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
+import { randomUUID } from 'crypto'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
+const TMP_DIR = '/home/z/my-project/tmp'
+
+async function ensureTmpDir() {
+  if (!existsSync(TMP_DIR)) {
+    await mkdir(TMP_DIR, { recursive: true })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    await ensureTmpDir()
+    const formData = await request.formData()
+    const file = formData.get('file') as File
+    const targetFormat = formData.get('targetFormat') as string || 'mp4'
+    const quality = Number(formData.get('quality') || '75')
+
+    if (!file) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    }
+
+    const id = randomUUID()
+    const inputExt = file.name.split('.').pop()?.toLowerCase() || 'gif'
+    const inputPath = path.join(TMP_DIR, `${id}-input.${inputExt}`)
+    const buffer = Buffer.from(await file.arrayBuffer())
+    await writeFile(inputPath, buffer)
+
+    const mimeType = file.type || ''
+    const isGif = mimeType.includes('gif') || inputExt === 'gif'
+    const isVideo = mimeType.includes('video') || ['mp4', 'webm', 'avi', 'mov'].includes(inputExt)
+    const isImage = mimeType.includes('image') || ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'].includes(inputExt)
+
+    // ==================== GIF → Video (MP4/WebM) ====================
+    if (isGif && (targetFormat === 'mp4' || targetFormat === 'webm')) {
+      const outputPath = path.join(TMP_DIR, `${id}-output.${targetFormat}`)
+
+      const ffmpegArgs = [
+        '-i', inputPath,
+        '-movflags', '+faststart',
+        '-pix_fmt', 'yuv420p',
+        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        '-crf', String(Math.round(63 - (quality / 100) * 51)),
+        '-preset', 'medium',
+      ]
+
+      if (targetFormat === 'webm') {
+        ffmpegArgs.push('-c:v', 'libvpx-vp9', '-c:a', 'libopus', '-b:v', '0')
+      } else {
+        ffmpegArgs.push('-c:v', 'libx264', '-an')
+      }
+
+      ffmpegArgs.push(outputPath)
+
+      await execFileAsync('ffmpeg', ffmpegArgs)
+
+      const outputBuffer = await readFile(outputPath)
+      const contentType = targetFormat === 'mp4' ? 'video/mp4' : 'video/webm'
+
+      try { await unlink(inputPath) } catch {}
+      try { await unlink(outputPath) } catch {}
+
+      return new NextResponse(outputBuffer, {
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': `attachment; filename="converted.${targetFormat}"`,
+          'X-Output-Size': outputBuffer.length.toString(),
+        },
+      })
+    }
+
+    // ==================== GIF → APNG ====================
+    if (isGif && targetFormat === 'apng') {
+      const framesDir = path.join(TMP_DIR, `${id}-apng-frames`)
+      await mkdir(framesDir, { recursive: true })
+
+      // Extract frames
+      await execFileAsync('ffmpeg', [
+        '-i', inputPath,
+        '-vsync', 'passthrough',
+        path.join(framesDir, 'frame_%04d.png'),
+      ])
+
+      // Get frame delay info from GIF
+      const metadata = await sharp(inputPath, { animated: true }).metadata()
+      const delays = metadata.delay || []
+      const avgDelay = delays.length > 0 ? Math.round(delays.reduce((a: number, b: number) => a + b, 0) / delays.length) : 100
+
+      const outputPath = path.join(TMP_DIR, `${id}-output.png`)
+
+      // Use ffmpeg to create APNG
+      await execFileAsync('ffmpeg', [
+        '-i', inputPath,
+        '-plays', '0',
+        '-f', 'apng',
+        outputPath,
+      ])
+
+      const outputBuffer = await readFile(outputPath)
+
+      try { await unlink(inputPath) } catch {}
+      try { await unlink(outputPath) } catch {}
+      try { await execFileAsync('rm', ['-rf', framesDir]) } catch {}
+
+      return new NextResponse(outputBuffer, {
+        headers: {
+          'Content-Type': 'image/apng',
+          'Content-Disposition': 'attachment; filename="converted.png"',
+          'X-Output-Size': outputBuffer.length.toString(),
+        },
+      })
+    }
+
+    // ==================== GIF → WebP (animated) ====================
+    if (isGif && targetFormat === 'webp') {
+      const outputPath = path.join(TMP_DIR, `${id}-output.webp`)
+
+      await sharp(inputPath, { animated: true })
+        .webp({ quality, effort: 6 })
+        .toFile(outputPath)
+
+      const outputBuffer = await readFile(outputPath)
+
+      try { await unlink(inputPath) } catch {}
+      try { await unlink(outputPath) } catch {}
+
+      return new NextResponse(outputBuffer, {
+        headers: {
+          'Content-Type': 'image/webp',
+          'Content-Disposition': 'attachment; filename="converted.webp"',
+          'X-Output-Size': outputBuffer.length.toString(),
+        },
+      })
+    }
+
+    // ==================== Image → Image format conversion ====================
+    if (isImage && !isGif) {
+      const outputPath = path.join(TMP_DIR, `${id}-output.${targetFormat}`)
+
+      let pipeline = sharp(inputPath)
+
+      switch (targetFormat) {
+        case 'png':
+          pipeline = pipeline.png({ quality, effort: 10 })
+          break
+        case 'jpg':
+        case 'jpeg':
+          pipeline = pipeline.jpeg({ quality })
+          break
+        case 'webp':
+          pipeline = pipeline.webp({ quality, effort: 6 })
+          break
+        case 'gif':
+          pipeline = pipeline.gif({ effort: 10 })
+          break
+        case 'bmp':
+          pipeline = pipeline.bmp()
+          break
+        case 'tiff':
+          pipeline = pipeline.tiff({ quality })
+          break
+        default:
+          pipeline = pipeline.png({ quality, effort: 10 })
+      }
+
+      await pipeline.toFile(outputPath)
+      const outputBuffer = await readFile(outputPath)
+
+      const contentTypes: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        bmp: 'image/bmp',
+        tiff: 'image/tiff',
+      }
+
+      try { await unlink(inputPath) } catch {}
+      try { await unlink(outputPath) } catch {}
+
+      return new NextResponse(outputBuffer, {
+        headers: {
+          'Content-Type': contentTypes[targetFormat] || 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="converted.${targetFormat}"`,
+          'X-Output-Size': outputBuffer.length.toString(),
+        },
+      })
+    }
+
+    // ==================== Video → Video format ====================
+    if (isVideo) {
+      const outputPath = path.join(TMP_DIR, `${id}-output.${targetFormat}`)
+
+      const ffmpegArgs = ['-i', inputPath]
+
+      if (targetFormat === 'mp4') {
+        ffmpegArgs.push('-c:v', 'libx264', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-crf', String(Math.round(63 - (quality / 100) * 51)))
+      } else if (targetFormat === 'webm') {
+        ffmpegArgs.push('-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', String(Math.round(63 - (quality / 100) * 51)))
+      } else if (targetFormat === 'gif') {
+        ffmpegArgs.push('-vf', 'fps=12,scale=480:-1:flags=lanczos,palettegen=stats_mode=diff[pal],[0:v][pal]paletteuse=dither=bayer:bayer_scale=3')
+      }
+
+      ffmpegArgs.push(outputPath)
+
+      await execFileAsync('ffmpeg', ffmpegArgs)
+
+      const outputBuffer = await readFile(outputPath)
+
+      const contentTypes: Record<string, string> = {
+        mp4: 'video/mp4',
+        webm: 'video/webm',
+        gif: 'image/gif',
+      }
+
+      try { await unlink(inputPath) } catch {}
+      try { await unlink(outputPath) } catch {}
+
+      return new NextResponse(outputBuffer, {
+        headers: {
+          'Content-Type': contentTypes[targetFormat] || 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="converted.${targetFormat}"`,
+          'X-Output-Size': outputBuffer.length.toString(),
+        },
+      })
+    }
+
+    return NextResponse.json({ error: 'Unsupported conversion' }, { status: 400 })
+  } catch (error: any) {
+    console.error('Convert error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
