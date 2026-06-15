@@ -3,17 +3,26 @@ const p = require('path');
 
 const standalone = '.next/standalone';
 
-// Clean old standalone output
-if (fs.existsSync(standalone)) {
-  fs.rmSync(standalone, { recursive: true, force: true });
-}
-fs.mkdirSync(standalone, { recursive: true });
+// Find project subdirectory
+const subdirs = fs.readdirSync(standalone, { withFileTypes: true })
+  .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules' && d.name !== 'public' && d.name !== 'tmp');
 
-// Find project subdirectory (or create it)
-const projName = 'app';
-const projDir = p.join(standalone, projName);
+if (subdirs.length === 0) {
+  console.error('No project subdirectory found in standalone');
+  process.exit(1);
+}
+
+const projDir = p.join(standalone, subdirs[0].name);
 const targetNext = p.join(projDir, '.next');
 
+// Remove any accidentally included dist-electron directory (would cause recursive copy in NSIS)
+const distElectronInStandalone = p.join(projDir, 'dist-electron');
+if (fs.existsSync(distElectronInStandalone)) {
+  fs.rmSync(distElectronInStandalone, { recursive: true, force: true });
+  console.log('Removed dist-electron from standalone (prevented recursive copy)');
+}
+
+// Remove old .next/static and public before copying new ones
 fs.mkdirSync(targetNext, { recursive: true });
 
 // Copy .next/static -> standalone/project/.next/static
