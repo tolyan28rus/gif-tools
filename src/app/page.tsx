@@ -31,6 +31,7 @@ import {
   Zap,
   ArrowRightLeft,
   Eraser,
+  RotateCcw,
 } from 'lucide-react'
 import { tools, type ToolType, type ToolConfig } from '@/lib/tools-config'
 
@@ -50,6 +51,7 @@ const toolIcons: Record<ToolType, React.ReactNode> = {
   'add-text': <Type className="h-5 w-5" />,
   'convert': <ArrowRightLeft className="h-5 w-5" />,
   'remove-bg': <Eraser className="h-5 w-5" />,
+  'flip': <RotateCcw className="h-5 w-5" />,
 }
 
 const toolColors: Record<ToolType, string> = {
@@ -65,6 +67,7 @@ const toolColors: Record<ToolType, string> = {
   'cut': 'from-orange-500 to-orange-600',
   'split': 'from-cyan-500 to-cyan-600',
   'add-text': 'from-pink-500 to-pink-600',
+  'flip': 'from-violet-500 to-violet-600',
   'convert': 'from-violet-500 to-violet-600',
   'remove-bg': 'from-fuchsia-500 to-fuchsia-600',
 }
@@ -539,12 +542,13 @@ function StandardToolView({
   const [cropY, setCropY] = useState(0)
   const [cropW, setCropW] = useState(0)
   const [cropH, setCropH] = useState(0)
-  const [cropShape, setCropShape] = useState<'free' | 'square'>('free')
+  const [cropShape, setCropShape] = useState<'free' | 'square'>('square')
   const [cropHasSelection, setCropHasSelection] = useState(false)
   const [cropVisible, setCropVisible] = useState(false)
   const cropDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; origW: number; origH: number; mode: string } | null>(null)
   const previewImgRef = useRef<HTMLImageElement>(null)
   const [rotateAngle, setRotateAngle] = useState(90)
+  const [flipDirection, setFlipDirection] = useState<'horizontal' | 'vertical' | 'both'>('horizontal')
   const [effect, setEffect] = useState('grayscale')
   const [speedMultiplier, setSpeedMultiplier] = useState(2)
   const [optimizeColors, setOptimizeColors] = useState(128)
@@ -822,6 +826,12 @@ function StandardToolView({
           endFrame: cutEnd,
         })
         break
+      case 'flip':
+        onProcess('flip', {
+          inputPath: uploadMeta.inputPath,
+          direction: flipDirection,
+        })
+        break
       case 'add-text':
         onProcess('add-text', {
           inputPath: uploadMeta.inputPath,
@@ -977,11 +987,11 @@ function StandardToolView({
                         </div>
                         <div className="space-y-2">
                           <Label>Ширина (px)</Label>
-                          <Input type="number" value={cropW} onChange={e => setCropW(Math.max(1, Number(e.target.value)))} min={1} />
+                          <Input type="number" value={cropW} onChange={e => { const v = Math.max(1, Number(e.target.value)); setCropW(v); if (cropShape === 'square') setCropH(v) }} min={1} />
                         </div>
                         <div className="space-y-2">
                           <Label>Высота (px)</Label>
-                          <Input type="number" value={cropH} onChange={e => setCropH(Math.max(1, Number(e.target.value)))} min={1} />
+                          <Input type="number" value={cropH} onChange={e => { const v = Math.max(1, Number(e.target.value)); setCropH(v); if (cropShape === 'square') setCropW(v) }} min={1} />
                         </div>
                       </div>
                       {uploadMeta && (
@@ -1095,6 +1105,31 @@ function StandardToolView({
                       Реверс воспроизведёт GIF-анимацию в обратном порядке. 
                       Первый кадр станет последним, а последний — первым.
                     </p>
+                  )}
+
+                  {/* FLIP OPTIONS */}
+                  {tool.id === 'flip' && (
+                    <div className="space-y-4">
+                      <Label>Направление отражения</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { value: 'horizontal', label: '↔ Горизонтально', desc: 'Зеркально по горизонтали' },
+                          { value: 'vertical', label: '↕ Вертикально', desc: 'Зеркально по вертикали' },
+                          { value: 'both', label: '⊞ Оба', desc: 'Отразить по обеим осям' },
+                        ].map(opt => (
+                          <Button
+                            key={opt.value}
+                            variant={flipDirection === opt.value ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setFlipDirection(opt.value as any)}
+                            className="h-auto py-3 flex-col gap-1"
+                          >
+                            <span className="text-sm">{opt.label}</span>
+                            <span className="text-[10px] opacity-70 font-normal">{opt.desc}</span>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   )}
 
                   {/* OPTIMIZE OPTIONS */}

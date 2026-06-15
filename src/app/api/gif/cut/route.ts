@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { readFile, unlink, rename, mkdir, readdir, rm } from 'fs/promises'
 import path from 'path'
 import { execFfmpeg } from '@/lib/ffmpeg-path'
+import { detectFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -30,8 +31,9 @@ export async function POST(request: NextRequest) {
 
     const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
     const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
+    const fmt = detectFormat(inputPath)
+    const outputPath = path.join(TMP_DIR, `${id}-output.${fmt.ext}`)
     const framesDir = path.join(TMP_DIR, `${id}-cut-frames`)
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
 
     await mkdir(framesDir, { recursive: true })
     await execFfmpeg([
@@ -75,8 +77,8 @@ export async function POST(request: NextRequest) {
 
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': 'image/gif',
-        'Content-Disposition': 'attachment; filename="cut.gif"',
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="cut.${fmt.ext}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },

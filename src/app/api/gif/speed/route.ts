@@ -3,6 +3,7 @@ import sharp from 'sharp'
 import { existsSync } from 'fs'
 import { readFile, unlink, mkdir } from 'fs/promises'
 import path from 'path'
+import { detectFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -24,10 +25,11 @@ export async function POST(request: NextRequest) {
 
     const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
     const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+    const fmt = detectFormat(inputPath)
+    const outputPath = path.join(TMP_DIR, `${id}-output.${fmt.ext}`)
 
     const inputBuffer = await readFile(safeInputPath)
-    const metadata = await sharp(inputBuffer, { animated: true }).metadata()
+    const metadata = await sharp(inputBuffer, { animated: fmt.isAnimated }).metadata()
     
     const multiplier = Number(speedMultiplier)
     const currentDelay = metadata.delay || []
@@ -36,9 +38,7 @@ export async function POST(request: NextRequest) {
       return Math.max(2, Math.min(newD, 6000))
     })
 
-    // We need to use sharp with custom delay
-    // Re-encode with new delays
-    await sharp(inputBuffer, { animated: true })
+    await sharp(inputBuffer, { animated: fmt.isAnimated })
       .gif({ effort: 10, delay: newDelay as any })
       .toFile(outputPath)
 
@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
 
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': 'image/gif',
-        'Content-Disposition': 'attachment; filename="speed-changed.gif"',
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="speed-changed.${fmt.ext}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },

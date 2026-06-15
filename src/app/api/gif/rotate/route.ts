@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { readFile, unlink, mkdir } from 'fs/promises'
 import path from 'path'
 import { execFfmpeg } from '@/lib/ffmpeg-path'
+import { detectFormat, pickOutputFormat, extensionToFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -25,9 +26,12 @@ export async function POST(request: NextRequest) {
 
     const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
     const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+    const fmt = detectFormat(inputPath)
+    const outputExt = pickOutputFormat(fmt.ext)
+    const outputPath = path.join(TMP_DIR, `${id}-output.${outputExt}`)
+    const formatKey = extensionToFormat(outputExt)
 
-    const metadata = await sharp(safeInputPath, { animated: true }).metadata()
+    const metadata = await sharp(safeInputPath, { animated: fmt.isAnimated }).metadata()
 
     if (metadata.pages && metadata.pages > 1) {
       const a = Number(angle) % 360
@@ -53,7 +57,7 @@ export async function POST(request: NextRequest) {
     } else {
       await sharp(safeInputPath)
         .rotate(Number(angle))
-        .gif({ effort: 10 })
+        .toFormat(formatKey, { effort: 10 } as any)
         .toFile(outputPath)
     }
 
@@ -61,8 +65,8 @@ export async function POST(request: NextRequest) {
 
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': 'image/gif',
-        'Content-Disposition': 'attachment; filename="rotated.gif"',
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="rotated.${outputExt}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },

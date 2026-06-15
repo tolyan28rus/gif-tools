@@ -13,6 +13,7 @@ export type ToolType =
   | 'video-to-gif'
   | 'convert'
   | 'remove-bg'
+  | 'flip'
 
 export interface ToolConfig {
   id: ToolType
@@ -43,9 +44,9 @@ export const tools: ToolConfig[] = [
   {
     id: 'resize',
     name: 'Ресайз',
-    description: 'Изменение размера GIF-анимации',
+    description: 'Изменение размера изображения или GIF',
     icon: '↔️',
-    acceptTypes: 'image/gif',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp,image/bmp',
     color: 'bg-sky-500',
   },
   {
@@ -59,23 +60,31 @@ export const tools: ToolConfig[] = [
   {
     id: 'rotate',
     name: 'Поворот',
-    description: 'Поворот GIF на любой угол',
+    description: 'Поворот изображения или GIF на любой угол',
     icon: '🔄',
-    acceptTypes: 'image/gif',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
     color: 'bg-rose-500',
+  },
+  {
+    id: 'flip',
+    name: 'Отразить',
+    description: 'Зеркальное отражение по горизонтали или вертикали',
+    icon: '🪞',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
+    color: 'bg-violet-500',
   },
   {
     id: 'effects',
     name: 'Эффекты',
-    description: 'Применение фильтров и эффектов к GIF',
+    description: 'Фильтры и эффекты для изображений и GIF',
     icon: '✨',
-    acceptTypes: 'image/gif',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
     color: 'bg-indigo-500',
   },
   {
     id: 'speed',
     name: 'Скорость',
-    description: 'Изменение скорости GIF-анимации',
+    description: 'Ускорение или замедление GIF-анимации',
     icon: '⚡',
     acceptTypes: 'image/gif',
     color: 'bg-yellow-500',
@@ -91,15 +100,15 @@ export const tools: ToolConfig[] = [
   {
     id: 'optimize',
     name: 'Оптимизация',
-    description: 'Уменьшение размера GIF-файла',
+    description: 'Уменьшение размера файла с настройкой цветов',
     icon: '📉',
-    acceptTypes: 'image/gif',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
     color: 'bg-green-500',
   },
   {
     id: 'cut',
     name: 'Нарезка',
-    description: 'Обрезка GIF по кадрам (выбор диапазона)',
+    description: 'Вырезать диапазон кадров из GIF',
     icon: '🔪',
     acceptTypes: 'image/gif',
     color: 'bg-orange-500',
@@ -107,7 +116,7 @@ export const tools: ToolConfig[] = [
   {
     id: 'split',
     name: 'Разделение',
-    description: 'Разделение GIF на отдельные кадры (PNG)',
+    description: 'Разделение GIF на отдельные кадры',
     icon: '📋',
     acceptTypes: 'image/gif',
     color: 'bg-cyan-500',
@@ -115,9 +124,9 @@ export const tools: ToolConfig[] = [
   {
     id: 'add-text',
     name: 'Добавить текст',
-    description: 'Наложение текста на GIF-анимацию',
+    description: 'Наложение текста на изображение или GIF',
     icon: '📝',
-    acceptTypes: 'image/gif',
+    acceptTypes: 'image/gif,image/png,image/jpeg,image/webp',
     color: 'bg-pink-500',
   },
   {

@@ -3,6 +3,7 @@ import sharp from 'sharp'
 import { existsSync } from 'fs'
 import { readFile, unlink, mkdir } from 'fs/promises'
 import path from 'path'
+import { detectFormat, pickOutputFormat, extensionToFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -24,26 +25,29 @@ export async function POST(request: NextRequest) {
 
     const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
     const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+    const fmt = detectFormat(inputPath)
+    const outputExt = pickOutputFormat(fmt.ext)
+    const outputPath = path.join(TMP_DIR, `${id}-output.${outputExt}`)
+    const formatKey = extensionToFormat(outputExt)
 
     const inputBuffer = await readFile(safeInputPath)
 
-    const gifOptions: sharp.GifOptions = { effort: 10 }
-    
+    let pipeline = sharp(inputBuffer, { animated: fmt.isAnimated })
+
+    const opts: Record<string, any> = { effort: 10 }
     if (colors) {
-      gifOptions.colours = Number(colors)
+      opts.colours = Number(colors)
     }
 
-    await sharp(inputBuffer, { animated: true })
-      .gif(gifOptions)
-      .toFile(outputPath)
+    pipeline = pipeline.toFormat(formatKey, opts as any)
+    await pipeline.toFile(outputPath)
 
     const outputBuffer = await readFile(outputPath)
 
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': 'image/gif',
-        'Content-Disposition': 'attachment; filename="optimized.gif"',
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="optimized.${outputExt}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },

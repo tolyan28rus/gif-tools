@@ -3,6 +3,7 @@ import sharp from 'sharp'
 import { existsSync } from 'fs'
 import { readFile, unlink, mkdir } from 'fs/promises'
 import path from 'path'
+import { detectFormat, pickOutputFormat, extensionToFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -57,10 +58,13 @@ export async function POST(request: NextRequest) {
 
     const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
     const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+    const fmt = detectFormat(inputPath)
+    const outputExt = pickOutputFormat(fmt.ext)
+    const outputPath = path.join(TMP_DIR, `${id}-output.${outputExt}`)
+    const formatKey = extensionToFormat(outputExt)
 
     const inputBuffer = await readFile(safeInputPath)
-    let pipeline = sharp(inputBuffer, { animated: true })
+    let pipeline = sharp(inputBuffer, { animated: fmt.isAnimated })
 
     const handler = effectHandlers[effect]
     if (!handler) {
@@ -68,7 +72,6 @@ export async function POST(request: NextRequest) {
     }
     pipeline = handler(pipeline)
 
-    // Apply additional adjustments
     const modulateOptions: Record<string, number> = {}
     if (brightness && brightness !== 100) modulateOptions.brightness = brightness / 100
     if (saturation && saturation !== 100) modulateOptions.saturation = saturation / 100
@@ -81,14 +84,15 @@ export async function POST(request: NextRequest) {
       pipeline = pipeline.linear(factor, -(128 * (factor - 1)))
     }
 
-    await pipeline.gif({ effort: 10 }).toFile(outputPath)
+    pipeline = pipeline.toFormat(formatKey, { effort: 10 } as any)
+    await pipeline.toFile(outputPath)
 
     const outputBuffer = await readFile(outputPath)
 
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': 'image/gif',
-        'Content-Disposition': 'attachment; filename="effects.gif"',
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="effects.${outputExt}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },

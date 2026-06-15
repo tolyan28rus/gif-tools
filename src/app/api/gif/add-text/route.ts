@@ -3,6 +3,7 @@ import { readFile, unlink, mkdir, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { execFfmpeg } from '@/lib/ffmpeg-path'
+import { detectFormat, pickOutputFormat, extensionToFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -24,7 +25,10 @@ export async function POST(request: NextRequest) {
 
     const safeInputPath = path.join(TMP_DIR, path.basename(inputPath))
     const id = path.basename(inputPath).replace(/-input\.[^.]+$/, '')
-    const outputPath = path.join(TMP_DIR, `${id}-output.gif`)
+    const fmt = detectFormat(inputPath)
+    const outputExt = pickOutputFormat(fmt.ext)
+    const formatKey = extensionToFormat(outputExt)
+    const outputPath = path.join(TMP_DIR, `${id}-output.${outputExt}`)
     const framesDir = path.join(TMP_DIR, `${id}-text-frames`)
     const outFramesDir = path.join(TMP_DIR, `${id}-text-out`)
 
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
     const sharp = (await import('sharp')).default
 
     const inputBuffer = await readFile(safeInputPath)
-    const metadata = await sharp(inputBuffer, { animated: true }).metadata()
+    const metadata = await sharp(inputBuffer, { animated: fmt.isAnimated }).metadata()
     const pages = metadata.pages || 1
     const delays = metadata.delay || []
     const avgDelay = delays.length > 0 ? Math.round(delays.reduce((a: number, b: number) => a + b, 0) / delays.length) : 100
@@ -55,11 +59,6 @@ export async function POST(request: NextRequest) {
       const sw = Number(strokeWidth) || 2
       const px = Number(positionX) || 10
       const py = Number(positionY) || 30
-
-      const svgText = `<svg width="1" height="1"><text x="0" y="${size}" font-size="${size}" fill="${color}" stroke="${stroke}" stroke-width="${sw}" font-family="Arial, Helvetica, sans-serif">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text></svg>`
-      const textMeta = await sharp(Buffer.from(svgText)).metadata()
-      const textW = textMeta.width || text.length * size * 0.6
-      const textH = textMeta.height || size
 
       for (const frameFile of frameFiles) {
         const framePath = path.join(framesDir, frameFile)
@@ -102,7 +101,7 @@ export async function POST(request: NextRequest) {
 
       await sharp(inputBuffer)
         .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
-        .png()
+        .toFormat(formatKey, { effort: 10 } as any)
         .toFile(outputPath)
     }
 
@@ -111,13 +110,10 @@ export async function POST(request: NextRequest) {
     try { await rm(framesDir, { recursive: true, force: true }) } catch {}
     try { await rm(outFramesDir, { recursive: true, force: true }) } catch {}
 
-    const contentType = pages > 1 ? 'image/gif' : 'image/png'
-    const filename = pages > 1 ? 'text-added.gif' : 'text-added.png'
-
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="text-added.${outputExt}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },

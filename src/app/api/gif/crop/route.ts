@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { execFfmpeg } from '@/lib/ffmpeg-path'
+import { detectFormat, pickOutputFormat, extensionToFormat } from '@/lib/format-helper'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
@@ -58,9 +59,12 @@ export async function POST(request: NextRequest) {
     }
 
     const sharp = (await import('sharp')).default
+    const fmt = detectFormat(inputPath)
+    const outputExt = pickOutputFormat(fmt.ext)
+    const formatKey = extensionToFormat(outputExt)
+    const outputPath = path.join(TMP_DIR, `${randomUUID()}-output.${outputExt}`)
     const metadata = await sharp(inputPath, { animated: true }).metadata()
     const pages = metadata.pages || 1
-    const outputPath = path.join(TMP_DIR, `${randomUUID()}-output.${pages > 1 ? 'gif' : 'png'}`)
 
     if (pages > 1) {
       const id = randomUUID()
@@ -137,15 +141,15 @@ export async function POST(request: NextRequest) {
 
     await sharp(inputPath)
       .extract({ left: clampedX, top: clampedY, width: clampedW, height: clampedH })
-      .png()
+      .toFormat(formatKey, { effort: 10 } as any)
       .toFile(outputPath)
 
     const outputBuffer = await readFile(outputPath)
 
     return new NextResponse(outputBuffer, {
       headers: {
-        'Content-Type': 'image/png',
-        'Content-Disposition': 'attachment; filename="cropped.png"',
+        'Content-Type': fmt.mimeType,
+        'Content-Disposition': `attachment; filename="cropped.${outputExt}"`,
         'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
