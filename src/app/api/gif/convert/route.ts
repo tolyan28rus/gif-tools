@@ -21,21 +21,30 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File
     const targetFormat = formData.get('targetFormat') as string || 'mp4'
     const quality = Number(formData.get('quality') || '75')
+    const chainInput = formData.get('inputPath') as string | null
 
-    if (!file) {
+    let inputPath: string
+    let isGif = false, isVideo = false, isImage = false
+
+    if (chainInput) {
+      inputPath = path.join(TMP_DIR, path.basename(chainInput))
+      const ext = path.extname(inputPath).replace('.', '').toLowerCase()
+      isGif = ext === 'gif'
+      isVideo = ['mp4', 'webm', 'avi', 'mov'].includes(ext)
+      isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'].includes(ext)
+    } else if (file) {
+      const id = randomUUID()
+      const inputExt = file.name.split('.').pop()?.toLowerCase() || 'gif'
+      inputPath = path.join(TMP_DIR, `${id}-input.${inputExt}`)
+      const buffer = Buffer.from(await file.arrayBuffer())
+      await writeFile(inputPath, buffer)
+      const mimeType = file.type || ''
+      isGif = mimeType.includes('gif') || inputExt === 'gif'
+      isVideo = mimeType.includes('video') || ['mp4', 'webm', 'avi', 'mov'].includes(inputExt)
+      isImage = mimeType.includes('image') || ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'].includes(inputExt)
+    } else {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
-
-    const id = randomUUID()
-    const inputExt = file.name.split('.').pop()?.toLowerCase() || 'gif'
-    const inputPath = path.join(TMP_DIR, `${id}-input.${inputExt}`)
-    const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(inputPath, buffer)
-
-    const mimeType = file.type || ''
-    const isGif = mimeType.includes('gif') || inputExt === 'gif'
-    const isVideo = mimeType.includes('video') || ['mp4', 'webm', 'avi', 'mov'].includes(inputExt)
-    const isImage = mimeType.includes('image') || ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'].includes(inputExt)
 
     // ==================== GIF → Video (MP4/WebM) ====================
     if (isGif && (targetFormat === 'mp4' || targetFormat === 'webm')) {

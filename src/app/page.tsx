@@ -96,6 +96,9 @@ export default function Home() {
   const [showOriginal, setShowOriginal] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
+  const lastToolRef = useRef<string | null>(null)
+  const lastOutputRef = useRef<string | null>(null)
+  const originalInputRef = useRef<string | null>(null)
 
   // Multi-file state for GIF Maker
   const [makeGifFiles, setMakeGifFiles] = useState<File[]>([])
@@ -113,6 +116,9 @@ export default function Home() {
         return
       }
       setUploadMeta(data)
+      lastToolRef.current = null
+      lastOutputRef.current = null
+      originalInputRef.current = data.inputPath
     } catch (err: any) {
       toast({ title: 'Ошибка загрузки', description: err.message, variant: 'destructive' })
     }
@@ -147,6 +153,13 @@ export default function Home() {
     setProcessing(true)
     setOutputUrl(null)
     try {
+      // Smart inputPath: same tool → use original, different tool → chain
+      const isSameTool = lastToolRef.current === endpoint
+      const effectiveInput = isSameTool || !lastOutputRef.current
+        ? originalInputRef.current
+        : lastOutputRef.current
+      body.inputPath = effectiveInput
+
       const res = await fetch(`/api/gif/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -169,7 +182,8 @@ export default function Home() {
       }
       const outputPath = res.headers.get('X-Output-Path')
       if (outputPath) {
-        setUploadMeta(prev => prev && { ...prev, inputPath: outputPath })
+        lastOutputRef.current = outputPath
+        lastToolRef.current = endpoint
       }
       toast({ title: 'Готово!', description: 'GIF успешно обработан' })
     } catch (err: any) {
@@ -183,6 +197,15 @@ export default function Home() {
     setProcessing(true)
     setOutputUrl(null)
     try {
+      // Smart chain: add inputPath to formData for tools that support it
+      const isSameTool = lastToolRef.current === endpoint
+      const effectiveInput = isSameTool || !lastOutputRef.current
+        ? originalInputRef.current
+        : lastOutputRef.current
+      if (effectiveInput) {
+        formData.append('inputPath', effectiveInput)
+      }
+
       const res = await fetch(`/api/gif/${endpoint}`, {
         method: 'POST',
         body: formData,
@@ -204,7 +227,8 @@ export default function Home() {
       }
       const outputPath = res.headers.get('X-Output-Path')
       if (outputPath) {
-        setUploadMeta(prev => prev && { ...prev, inputPath: outputPath })
+        lastOutputRef.current = outputPath
+        lastToolRef.current = endpoint
       }
       toast({ title: 'Готово!', description: 'GIF успешно создан' })
     } catch (err: any) {

@@ -28,13 +28,17 @@ export async function POST(request: NextRequest) {
       width = Number(formData.get('width') || '0')
       height = Number(formData.get('height') || '0')
 
-      if (!file) {
+      const formInputPath = formData.get('inputPath') as string | null
+      if (formInputPath) {
+        inputPath = path.join(TMP_DIR, path.basename(formInputPath))
+      } else if (file) {
+        const buffer = Buffer.from(await file.arrayBuffer())
+        const id = randomUUID()
+        inputPath = path.join(TMP_DIR, `${id}-input.${(file.type || '').includes('gif') || file.name.endsWith('.gif') ? 'gif' : 'png'}`)
+        await writeFile(inputPath, buffer)
+      } else {
         return NextResponse.json({ error: 'No file provided' }, { status: 400 })
       }
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const id = randomUUID()
-      inputPath = path.join(TMP_DIR, `${id}-input.${(file.type || '').includes('gif') || file.name.endsWith('.gif') ? 'gif' : 'png'}`)
-      await writeFile(inputPath, buffer)
     } else {
       const body = await request.json()
       const input = body.inputPath as string

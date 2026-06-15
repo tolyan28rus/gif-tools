@@ -194,19 +194,33 @@ export async function POST(request: NextRequest) {
     const bgColor = formData.get('bgColor') as string || '#ffffff'
     const tolerance = Number(formData.get('tolerance') || '30')
     const mode = (formData.get('mode') as string) || 'flood'
+    const chainInput = formData.get('inputPath') as string | null
 
-    if (!file) {
+    let inputGifPath: string
+    let isGif = false, buffer: Buffer
+    const id = randomUUID()
+
+    if (chainInput) {
+      inputGifPath = path.join(TMP_DIR, path.basename(chainInput))
+      buffer = await readFile(inputGifPath)
+      isGif = path.extname(inputGifPath).toLowerCase() === '.gif'
+    } else if (file) {
+      buffer = Buffer.from(await file.arrayBuffer())
+      isGif = (file.type || '').includes('gif') || file.name.endsWith('.gif')
+      if (isGif) {
+        inputGifPath = path.join(TMP_DIR, `${id}-input.gif`)
+      } else {
+        const ext = file.name.split('.').pop() || 'png'
+        inputGifPath = path.join(TMP_DIR, `${id}-input.${ext}`)
+      }
+      await writeFile(inputGifPath, buffer)
+    } else {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
-
-    const id = randomUUID()
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const isGif = (file.type || '').includes('gif') || file.name.endsWith('.gif')
 
     if (isGif) {
       const framesDir = path.join(TMP_DIR, `${id}-bg-frames`)
       const outputDir = path.join(TMP_DIR, `${id}-bg-output`)
-      const inputGifPath = path.join(TMP_DIR, `${id}-input.gif`)
       await mkdir(framesDir, { recursive: true })
       await mkdir(outputDir, { recursive: true })
       await writeFile(inputGifPath, buffer)
