@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { readFile, unlink } from 'fs/promises'
+import { existsSync } from 'fs'
+import { readFile, unlink, mkdir } from 'fs/promises'
 import path from 'path'
 
 const TMP_DIR = path.join(process.cwd(), 'tmp')
 
+async function ensureTmpDir() {
+  if (!existsSync(TMP_DIR)) {
+    await mkdir(TMP_DIR, { recursive: true })
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    await ensureTmpDir()
     const body = await request.json()
     const { inputPath, width, height, maintainAspect } = body
 
@@ -53,6 +61,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('Resize error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal processing error' }, { status: 500 })
   }
 }

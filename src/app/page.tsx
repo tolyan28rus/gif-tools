@@ -745,16 +745,15 @@ function StandardToolView({
           maintainAspect,
         })
         break
-      case 'crop': {
-        const fd = new FormData()
-        if (file) fd.append('file', file)
-        fd.append('x', String(cropX))
-        fd.append('y', String(cropY))
-        fd.append('width', String(cropW))
-        fd.append('height', String(cropH))
-        onProcessFormData('crop', fd)
+      case 'crop':
+        onProcess('crop', {
+          inputPath: uploadMeta.inputPath,
+          x: cropX,
+          y: cropY,
+          width: cropW,
+          height: cropH,
+        })
         break
-      }
       case 'rotate':
         onProcess('rotate', {
           inputPath: uploadMeta.inputPath,

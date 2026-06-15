@@ -39,4 +39,16 @@ if (fs.existsSync(publicSrc)) {
   console.error('Source public/ not found!');
 }
 
+// Copy missing sharp native DLLs (libvips) that Next.js trace-based bundler skips
+const sharpDllSrc = p.join('node_modules', '@img', 'sharp-win32-x64', 'lib');
+const sharpDllDst = p.join(projDir, 'node_modules', '@img', 'sharp-win32-x64', 'lib');
+if (fs.existsSync(sharpDllSrc)) {
+  const dlls = fs.readdirSync(sharpDllSrc).filter(f => f.endsWith('.dll'));
+  fs.mkdirSync(sharpDllDst, { recursive: true });
+  for (const dll of dlls) {
+    fs.cpSync(p.join(sharpDllSrc, dll), p.join(sharpDllDst, dll));
+    console.log('Copied sharp DLL:', dll);
+  }
+}
+
 console.log('Done copying standalone files');

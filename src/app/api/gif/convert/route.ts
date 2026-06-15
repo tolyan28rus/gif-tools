@@ -245,6 +245,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unsupported conversion' }, { status: 400 })
   } catch (error: any) {
     console.error('Convert error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal processing error' }, { status: 500 })
   }
 }
