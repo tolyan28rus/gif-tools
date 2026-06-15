@@ -262,7 +262,6 @@ export async function POST(request: NextRequest) {
       const outputBuffer = await readFile(outputGifPath)
 
       try { await unlink(inputGifPath) } catch {}
-      try { await unlink(outputGifPath) } catch {}
       try { await rm(framesDir, { recursive: true, force: true }) } catch {}
       try { await rm(outputDir, { recursive: true, force: true }) } catch {}
 
@@ -270,6 +269,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type': 'image/gif',
           'Content-Disposition': 'attachment; filename="bg-removed.gif"',
+          'X-Output-Path': outputGifPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })
@@ -301,12 +301,11 @@ export async function POST(request: NextRequest) {
 
       const outputBuffer = await readFile(outputPath)
 
-      try { await unlink(outputPath) } catch {}
-
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': 'image/png',
           'Content-Disposition': 'attachment; filename="bg-removed.png"',
+          'X-Output-Path': outputPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })

@@ -59,13 +59,13 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(outputPath) } catch {}
     try { await rm(framesDir, { recursive: true, force: true }) } catch {}
 
     return new NextResponse(outputBuffer, {
       headers: {
         'Content-Type': 'image/gif',
         'Content-Disposition': 'attachment; filename="reversed.gif"',
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })

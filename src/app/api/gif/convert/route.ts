@@ -63,12 +63,11 @@ export async function POST(request: NextRequest) {
       const outputBuffer = await readFile(outputPath)
       const contentType = targetFormat === 'mp4' ? 'video/mp4' : 'video/webm'
 
-      try { await unlink(outputPath) } catch {}
-
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': contentType,
           'Content-Disposition': `attachment; filename="converted.${targetFormat}"`,
+          'X-Output-Path': outputPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })
@@ -101,13 +100,13 @@ export async function POST(request: NextRequest) {
 
       const outputBuffer = await readFile(outputPath)
 
-      try { await unlink(outputPath) } catch {}
       try { await rm(framesDir, { recursive: true, force: true }) } catch {}
 
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': 'image/apng',
           'Content-Disposition': 'attachment; filename="converted.png"',
+          'X-Output-Path': outputPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })
@@ -123,12 +122,11 @@ export async function POST(request: NextRequest) {
 
       const outputBuffer = await readFile(outputPath)
 
-      try { await unlink(outputPath) } catch {}
-
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': 'image/webp',
           'Content-Disposition': 'attachment; filename="converted.webp"',
+          'X-Output-Path': outputPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })
@@ -177,12 +175,11 @@ export async function POST(request: NextRequest) {
         tiff: 'image/tiff',
       }
 
-      try { await unlink(outputPath) } catch {}
-
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': contentTypes[targetFormat] || 'application/octet-stream',
           'Content-Disposition': `attachment; filename="converted.${targetFormat}"`,
+          'X-Output-Path': outputPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })
@@ -208,12 +205,12 @@ export async function POST(request: NextRequest) {
         ffmpegArgs.push('-i', palettePath, '-lavfi', `fps=12,scale=480:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3`, outputPath)
         await execFfmpeg(ffmpegArgs)
         const outputBuffer = await readFile(outputPath)
-        try { await unlink(outputPath) } catch {}
         try { await unlink(palettePath) } catch {}
         return new NextResponse(outputBuffer, {
           headers: {
             'Content-Type': 'image/gif',
             'Content-Disposition': 'attachment; filename="converted.gif"',
+            'X-Output-Path': outputPath,
             'X-Output-Size': outputBuffer.length.toString(),
           },
         })
@@ -231,12 +228,11 @@ export async function POST(request: NextRequest) {
         gif: 'image/gif',
       }
 
-      try { await unlink(outputPath) } catch {}
-
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': contentTypes[targetFormat] || 'application/octet-stream',
           'Content-Disposition': `attachment; filename="converted.${targetFormat}"`,
+          'X-Output-Path': outputPath,
           'X-Output-Size': outputBuffer.length.toString(),
         },
       })

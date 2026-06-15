@@ -21,7 +21,7 @@ const effectHandlers: Record<string, (pipeline: sharp.Sharp) => sharp.Sharp> = {
   ]),
   blur: (p) => p.blur(3),
   sharpen: (p) => p.sharpen(),
-  negate: (p) => p.negate(),
+  negate: (p) => p.negate({ alpha: false }),
   normalize: (p) => p.normalize(),
   brightness: (p) => p.modulate({ brightness: 1.5 }),
   darken: (p) => p.modulate({ brightness: 0.5 }),
@@ -85,12 +85,11 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(outputPath) } catch {}
-
     return new NextResponse(outputBuffer, {
       headers: {
         'Content-Type': 'image/gif',
         'Content-Disposition': 'attachment; filename="effects.gif"',
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })

@@ -56,12 +56,12 @@ export async function POST(request: NextRequest) {
 
     // Clean up
     try { await unlink(palettePath) } catch {}
-    try { await unlink(outputPath) } catch {}
 
     return new NextResponse(outputBuffer, {
       headers: {
         'Content-Type': 'image/gif',
         'Content-Disposition': 'attachment; filename="video-to-gif.gif"',
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })

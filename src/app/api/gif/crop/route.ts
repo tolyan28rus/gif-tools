@@ -112,13 +112,13 @@ export async function POST(request: NextRequest) {
 
       try { await rm(framesDir, { recursive: true, force: true }) } catch {}
       try { await rm(outFramesDir, { recursive: true, force: true }) } catch {}
-      try { await unlink(outputPath) } catch {}
 
       return new NextResponse(outputBuffer, {
         headers: {
           'Content-Type': 'image/gif',
-          'Content-Disposition': 'attachment; filename="cropped.gif"',
-          'X-Output-Size': outputBuffer.length.toString(),
+        'Content-Disposition': 'attachment; filename="cropped.gif"',
+        'X-Output-Path': outputPath,
+        'X-Output-Size': outputBuffer.length.toString(),
         },
       })
     }
@@ -138,12 +138,11 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(outputPath) } catch {}
-
     return new NextResponse(outputBuffer, {
       headers: {
         'Content-Type': 'image/png',
         'Content-Disposition': 'attachment; filename="cropped.png"',
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })

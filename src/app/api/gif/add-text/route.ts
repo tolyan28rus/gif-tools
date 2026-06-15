@@ -108,7 +108,6 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(outputPath) } catch {}
     try { await rm(framesDir, { recursive: true, force: true }) } catch {}
     try { await rm(outFramesDir, { recursive: true, force: true }) } catch {}
 
@@ -119,6 +118,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })

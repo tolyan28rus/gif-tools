@@ -167,6 +167,10 @@ export default function Home() {
         const match = cd.match(/filename="?(.+?)"?$/)
         if (match) setOutputFilename(match[1])
       }
+      const outputPath = res.headers.get('X-Output-Path')
+      if (outputPath) {
+        setUploadMeta(prev => prev && { ...prev, inputPath: outputPath })
+      }
       toast({ title: 'Готово!', description: 'GIF успешно обработан' })
     } catch (err: any) {
       toast({ title: 'Ошибка', description: err.message, variant: 'destructive' })
@@ -197,6 +201,10 @@ export default function Home() {
       if (cd) {
         const match = cd.match(/filename="?(.+?)"?$/)
         if (match) setOutputFilename(match[1])
+      }
+      const outputPath = res.headers.get('X-Output-Path')
+      if (outputPath) {
+        setUploadMeta(prev => prev && { ...prev, inputPath: outputPath })
       }
       toast({ title: 'Готово!', description: 'GIF успешно создан' })
     } catch (err: any) {

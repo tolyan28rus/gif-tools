@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       if (a === 90) vf = 'transpose=1'
       else if (a === 180) vf = 'transpose=1,transpose=1'
       else if (a === 270) vf = 'transpose=2'
-      else vf = `rotate=${rad}:ow=${outW}:oh=${outH}:c=none`
+      else vf = `rotate=${rad}:ow=${outW}:oh=${outH}:c=0x00000000`
 
       await execFfmpeg([
         '-i', safeInputPath,
@@ -59,12 +59,11 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(outputPath) } catch {}
-
     return new NextResponse(outputBuffer, {
       headers: {
         'Content-Type': 'image/gif',
         'Content-Disposition': 'attachment; filename="rotated.gif"',
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })

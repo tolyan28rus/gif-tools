@@ -44,12 +44,11 @@ export async function POST(request: NextRequest) {
 
     const outputBuffer = await readFile(outputPath)
 
-    try { await unlink(outputPath) } catch {}
-
     return new NextResponse(outputBuffer, {
       headers: {
         'Content-Type': 'image/gif',
         'Content-Disposition': 'attachment; filename="speed-changed.gif"',
+        'X-Output-Path': outputPath,
         'X-Output-Size': outputBuffer.length.toString(),
       },
     })
