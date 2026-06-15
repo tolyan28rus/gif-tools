@@ -87,15 +87,21 @@ async function startServer() {
   console.log(`[GIF Tools] Server: ${serverPath}`);
   console.log(`[GIF Tools] CWD: ${cwd}`);
 
-  serverProcess = spawn('node', [serverPath], {
+  const nodeBin = isDev ? 'node' : process.execPath;
+  const spawnEnv = {
+    ...process.env,
+    PORT: SERVER_PORT,
+    HOST: '127.0.0.1',
+    NODE_ENV: 'production',
+    FFMPEG_PATH: isDev ? path.join(__dirname, 'resources', 'ffmpeg', 'ffmpeg.exe') : path.join(process.resourcesPath, 'ffmpeg', 'ffmpeg.exe'),
+  };
+  if (!isDev) {
+    spawnEnv.ELECTRON_RUN_AS_NODE = '1';
+  }
+
+  serverProcess = spawn(nodeBin, [serverPath], {
     cwd,
-    env: {
-      ...process.env,
-      PORT: SERVER_PORT,
-      HOST: '127.0.0.1',
-      NODE_ENV: 'production',
-      FFMPEG_PATH: isDev ? path.join(__dirname, 'resources', 'ffmpeg', 'ffmpeg.exe') : path.join(process.resourcesPath, 'ffmpeg', 'ffmpeg.exe'),
-    },
+    env: spawnEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
